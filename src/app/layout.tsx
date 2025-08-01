@@ -3,14 +3,11 @@ import { Poppins } from "next/font/google";
 import Link from "next/link";
 import {
   ClerkProvider,
-  SignInButton,
-  SignUpButton,
   SignedIn,
-  SignedOut,
   UserButton,
 } from "@clerk/nextjs";
 import { dark } from "@clerk/themes";
-import { Button } from "@/components/ui/button";
+
 import "./globals.css";
 
 const poppins = Poppins({
@@ -20,7 +17,7 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: "FlashCardy - Personal Flashcard Learning App",
+  title: "FlashyCardy - Personal Flashcard Learning App",
   description: "Your personal flashcard learning app powered by Clerk authentication",
 };
 
@@ -59,7 +56,7 @@ export default function RootLayout({
           <header className="border-b border-gray-200 dark:border-gray-800 p-4">
             <div className="max-w-4xl mx-auto flex justify-between items-center">
               <Link href="/" className="text-xl font-bold hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
-                FlashCardy
+                FlashyCardy
               </Link>
               <div className="flex items-center gap-4">
                 <SignedIn>
@@ -68,38 +65,6 @@ export default function RootLayout({
                       Dashboard
                     </Link>
                   </nav>
-                </SignedIn>
-                <SignedOut>
-                  <SignInButton 
-                    mode="modal"
-                    appearance={{
-                      baseTheme: dark,
-                      variables: {
-                        colorPrimary: "oklch(0.488 0.243 264.376)",
-                        colorBackground: "oklch(0.145 0 0)",
-                      },
-                    }}
-                  >
-                    <Button variant="default">
-                      Sign In
-                    </Button>
-                  </SignInButton>
-                  <SignUpButton 
-                    mode="modal"
-                    appearance={{
-                      baseTheme: dark,
-                      variables: {
-                        colorPrimary: "oklch(0.488 0.243 264.376)",
-                        colorBackground: "oklch(0.145 0 0)",
-                      },
-                    }}
-                  >
-                    <Button variant="secondary">
-                      Sign Up
-                    </Button>
-                  </SignUpButton>
-                </SignedOut>
-                <SignedIn>
                   <UserButton 
                     afterSignOutUrl="/"
                     appearance={{

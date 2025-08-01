@@ -1,0 +1,317 @@
+---
+alwaysApply: true
+---
+
+# shadcn/ui Components Only - UI Development Rules
+
+This project MUST use ONLY shadcn/ui components for all user interface elements. Custom UI components are strictly prohibited.
+
+## Core UI Requirements
+
+### 1. shadcn/ui Components Only
+- **ALWAYS** use shadcn/ui components from [src/components/ui/](mdc:src/components/ui/)
+- **NEVER** create custom UI components from scratch
+- **NEVER** use other UI libraries (Material-UI, Chakra UI, etc.)
+- **NEVER** write custom CSS for UI elements - use shadcn/ui styling
+
+### 2. Dark Mode Requirements
+This project MUST be configured and used entirely in dark mode:
+
+- **MANDATORY**: The application MUST use dark mode as the ONLY theme
+- **ALWAYS** configure `next-themes` with `defaultTheme="dark"` and `forcedTheme="dark"`
+- **ALWAYS** use shadcn/ui dark mode color tokens and variants
+- **NEVER** implement light mode or theme switching functionality
+- **NEVER** use light mode colors or styling
+- **ALWAYS** use dark mode appropriate text colors and backgrounds from shadcn/ui
+
+#### Dark Mode Setup
+Configure your layout with forced dark mode:
+
+```typescript
+import { ThemeProvider } from "next-themes";
+
+export default function RootLayout({ children }) {
+  return (
+    <html lang="en" className="dark">
+      <body>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          forcedTheme="dark"
+          disableTransitionOnChange
+        >
+          {children}
+        </ThemeProvider>
+      </body>
+    </html>
+  );
+}
+```
+
+#### Dark Mode Component Usage
+All components should utilize dark mode styling:
+
+```typescript
+// ✅ CORRECT: Use dark mode appropriate styling
+<Card className="bg-card border-border">
+  <CardHeader>
+    <CardTitle className="text-foreground">Title</CardTitle>
+    <CardDescription className="text-muted-foreground">Description</CardDescription>
+  </CardHeader>
+</Card>
+
+// ✅ CORRECT: Dark mode buttons automatically styled
+<Button variant="default">Primary Button</Button>
+<Button variant="secondary">Secondary Button</Button>
+<Button variant="outline">Outline Button</Button>
+```
+
+#### Forbidden Light Mode Patterns
+❌ **NEVER implement:**
+- Theme switching buttons or toggles
+- Light mode configurations
+- Manual light/white colors
+- Light mode specific styling
+
+### 3. Component Installation
+When a shadcn/ui component is needed but not yet installed:
+```bash
+npx shadcn@latest add [component-name]
+```
+
+### 3. Available shadcn/ui Components
+Use these patterns for common UI elements:
+
+#### Buttons
+```typescript
+import { Button } from "@/components/ui/button";
+
+// Primary button
+<Button>Click me</Button>
+
+// Secondary button  
+<Button variant="secondary">Secondary</Button>
+
+// Destructive button
+<Button variant="destructive">Delete</Button>
+
+// Outline button
+<Button variant="outline">Outline</Button>
+```
+
+#### Forms
+```typescript
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+
+<div className="space-y-2">
+  <Label htmlFor="title">Title</Label>
+  <Input id="title" placeholder="Enter title..." />
+</div>
+```
+
+#### Cards
+```typescript
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+
+<Card>
+  <CardHeader>
+    <CardTitle>Card Title</CardTitle>
+    <CardDescription>Card description</CardDescription>
+  </CardHeader>
+  <CardContent>
+    <p>Card content goes here</p>
+  </CardContent>
+</Card>
+```
+
+#### Dialogs/Modals
+```typescript
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+
+<Dialog>
+  <DialogTrigger asChild>
+    <Button>Open Dialog</Button>
+  </DialogTrigger>
+  <DialogContent>
+    <DialogHeader>
+      <DialogTitle>Dialog Title</DialogTitle>
+      <DialogDescription>Dialog description</DialogDescription>
+    </DialogHeader>
+    {/* Dialog content */}
+  </DialogContent>
+</Dialog>
+```
+
+## Clerk Authentication Integration
+
+### 1. Modal-Based Authentication
+Clerk authentication MUST use modal dialogs, not separate pages:
+
+```typescript
+import { SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
+
+// ✅ CORRECT: Modal sign-in with shadcn/ui Button
+<Dialog>
+  <DialogTrigger asChild>
+    <Button variant="outline">Sign In</Button>
+  </DialogTrigger>
+  <DialogContent>
+    <SignInButton mode="modal" />
+  </DialogContent>
+</Dialog>
+
+// ✅ CORRECT: Modal sign-up with shadcn/ui Button  
+<Dialog>
+  <DialogTrigger asChild>
+    <Button>Sign Up</Button>
+  </DialogTrigger>
+  <DialogContent>
+    <SignUpButton mode="modal" />
+  </DialogContent>
+</Dialog>
+```
+
+### 2. Clerk Configuration
+Configure Clerk to use modal mode in your layout or auth components:
+
+```typescript
+// ✅ CORRECT: Use modal mode for all Clerk components
+<SignInButton mode="modal">
+  <Button variant="outline">Sign In</Button>
+</SignInButton>
+
+<SignUpButton mode="modal">
+  <Button>Get Started</Button>
+</SignUpButton>
+```
+
+### 3. User Button Integration
+```typescript
+import { UserButton } from "@clerk/nextjs";
+
+// ✅ CORRECT: Use Clerk's UserButton (it's already styled appropriately)
+<UserButton afterSignOutUrl="/" />
+```
+
+## Forbidden Patterns
+
+### ❌ NEVER DO:
+1. **Custom UI Components**
+   ```typescript
+   // ❌ WRONG: Creating custom button component
+   function CustomButton({ children, ...props }) {
+     return <button className="custom-btn" {...props}>{children}</button>;
+   }
+   ```
+
+2. **Non-shadcn UI Libraries**
+   ```typescript
+   // ❌ WRONG: Using other UI libraries
+   import { Button } from '@mui/material';
+   import { Button } from '@chakra-ui/react';
+   ```
+
+3. **Custom CSS for UI Elements**
+   ```css
+   /* ❌ WRONG: Custom button styles */
+   .custom-button {
+     background: blue;
+     padding: 10px;
+     border-radius: 5px;
+   }
+   ```
+
+4. **Clerk Page-Based Authentication**
+   ```typescript
+   // ❌ WRONG: Using separate sign-in pages
+   <SignInButton mode="redirect" redirectUrl="/sign-in" />
+   ```
+
+5. **Inline Styles on UI Components**
+   ```typescript
+   // ❌ WRONG: Inline styles
+   <Button style={{ backgroundColor: 'red', padding: '20px' }}>
+     Custom Styled Button
+   </Button>
+   ```
+
+6. **Light Mode or Theme Switching**
+   ```typescript
+   // ❌ WRONG: Theme switching functionality
+   <Button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+     Toggle Theme
+   </Button>
+   
+   // ❌ WRONG: Light mode configuration
+   <ThemeProvider defaultTheme="light">
+     {children}
+   </ThemeProvider>
+   
+   // ❌ WRONG: Manual light colors
+   <div className="bg-white text-black">
+     Light mode content
+   </div>
+   ```
+
+## Required Component Installation
+
+Install these shadcn/ui components for the flashcard app:
+
+```bash
+npx shadcn@latest add button
+npx shadcn@latest add card  
+npx shadcn@latest add input
+npx shadcn@latest add label
+npx shadcn@latest add textarea
+npx shadcn@latest add dialog
+npx shadcn@latest add dropdown-menu
+npx shadcn@latest add badge
+npx shadcn@latest add separator
+npx shadcn@latest add alert
+npx shadcn@latest add progress
+npx shadcn@latest add skeleton
+```
+
+## Component Composition
+
+Build complex UI by composing shadcn/ui components:
+
+```typescript
+// ✅ CORRECT: Compose shadcn/ui components
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+
+function DeckCard({ deck }) {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex justify-between items-start">
+          <CardTitle>{deck.title}</CardTitle>
+          <Badge variant="secondary">{deck.cardCount} cards</Badge>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <p className="text-sm text-muted-foreground mb-4">{deck.description}</p>
+        <div className="flex gap-2">
+          <Button size="sm">Study</Button>
+          <Button variant="outline" size="sm">Edit</Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+## Error Prevention
+
+- Before creating ANY UI element, check if a shadcn/ui component exists for it
+- If you need a component not yet installed, install it using `npx shadcn@latest add [component]`
+- Use shadcn/ui's variant props for styling instead of custom CSS
+- Always check the [shadcn/ui documentation](https://ui.shadcn.com/) for proper usage patterns
+
+Remember: The goal is to maintain a consistent, professional UI using only shadcn/ui components with modal-based Clerk authentication in a fully dark mode application throughout the entire project.
