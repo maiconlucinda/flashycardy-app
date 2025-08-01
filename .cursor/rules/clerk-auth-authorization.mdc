@@ -1,0 +1,322 @@
+---
+alwaysApply: true
+description: Clerk authentication and user data authorization patterns
+---
+
+# Clerk Authentication & Authorization Rules
+
+This application uses Clerk for authentication. **CRITICAL**: Users must ONLY be able to access their own data and never access data belonging to other users.
+
+## Core Security Principles
+
+### 1. ALWAYS Authenticate Before Data Access
+Every data operation must verify the user's identity using Clerk's `auth()` function.
+
+```typescript
+import { auth } from '@clerk/nextjs/server';
+
+// ✅ CORRECT: Always check auth first
+export async function getUserDecks() {
+  const { userId } = await auth();
+  if (!userId) {
+    throw new Error('Unauthorized');
+  }
+  
+  // Now safe to proceed with userId
+  const decks = await db.select()
+    .from(decksTable)
+    .where(eq(decksTable.userId, userId));
+    
+  return decks;
+}
+```
+
+### 2. User ID is the Source of Truth
+- **NEVER** trust user IDs from client-side requests (URL params, form data, etc.)
+- **ALWAYS** use the `userId` from Clerk's `auth()` function
+- **ALWAYS** filter database queries by the authenticated user's ID
+
+```typescript
+// ❌ WRONG: Never trust client-provided user IDs
+export async function getDeck(deckId: number, clientUserId: string) {
+  const deck = await db.select()
+    .from(decksTable)
+    .where(and(
+      eq(decksTable.id, deckId),
+      eq(decksTable.userId, clientUserId) // ❌ DANGEROUS!
+    ));
+}
+
+// ✅ CORRECT: Use authenticated user ID only
+export async function getDeck(deckId: number) {
+  const { userId } = await auth();
+  if (!userId) throw new Error('Unauthorized');
+  
+  const deck = await db.select()
+    .from(decksTable)
+    .where(and(
+      eq(decksTable.id, deckId),
+      eq(decksTable.userId, userId) // ✅ SAFE!
+    ));
+}
+```
+
+## Data Access Patterns
+
+### Reading Data (SELECT Operations)
+**ALWAYS** include user ownership verification in WHERE clauses:
+
+```typescript
+// ✅ Get user's decks
+const userDecks = await db.select()
+  .from(decksTable)
+  .where(eq(decksTable.userId, userId));
+
+// ✅ Get specific deck (with ownership check)
+const userDeck = await db.select()
+  .from(decksTable)
+  .where(and(
+    eq(decksTable.id, deckId),
+    eq(decksTable.userId, userId)
+  ))
+  .limit(1);
+
+// ✅ Get cards for user's deck (join with ownership check)
+const userDeckCards = await db.select()
+  .from(cardsTable)
+  .innerJoin(decksTable, eq(cardsTable.deckId, decksTable.id))
+  .where(eq(decksTable.userId, userId));
+```
+
+### Creating Data (INSERT Operations)
+**ALWAYS** set the userId when creating records:
+
+```typescript
+// ✅ Create deck for authenticated user
+const [newDeck] = await db.insert(decksTable)
+  .values({
+    title: 'My Deck',
+    description: 'Description',
+    userId: userId // ✅ REQUIRED!
+  })
+  .returning();
+
+// ✅ Create card for user's deck (verify deck ownership first)
+const [deck] = await db.select()
+  .from(decksTable)
+  .where(and(
+    eq(decksTable.id, deckId),
+    eq(decksTable.userId, userId)
+  ))
+  .limit(1);
+
+if (!deck) {
+  throw new Error('Deck not found or unauthorized');
+}
+
+const [newCard] = await db.insert(cardsTable)
+  .values({
+    front: 'Question',
+    back: 'Answer',
+    deckId: deckId
+  })
+  .returning();
+```
+
+### Updating Data (UPDATE Operations)
+**ALWAYS** verify ownership before updating:
+
+```typescript
+// ✅ Update user's deck
+const result = await db.update(decksTable)
+  .set({ 
+    title: 'Updated Title',
+    updatedAt: new Date()
+  })
+  .where(and(
+    eq(decksTable.id, deckId),
+    eq(decksTable.userId, userId) // ✅ OWNERSHIP CHECK
+  ))
+  .returning();
+
+if (result.length === 0) {
+  throw new Error('Deck not found or unauthorized');
+}
+```
+
+### Deleting Data (DELETE Operations)
+**ALWAYS** verify ownership before deleting:
+
+```typescript
+// ✅ Delete user's deck
+const result = await db.delete(decksTable)
+  .where(and(
+    eq(decksTable.id, deckId),
+    eq(decksTable.userId, userId) // ✅ OWNERSHIP CHECK
+  ))
+  .returning();
+
+if (result.length === 0) {
+  throw new Error('Deck not found or unauthorized');
+}
+```
+
+## API Routes Pattern
+
+```typescript
+// app/api/decks/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
+import { db } from '@/db';
+import { decksTable } from '@/db/schema';
+import { eq } from 'drizzle-orm';
+
+export async function GET() {
+  try {
+    // ✅ STEP 1: Always authenticate first
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // ✅ STEP 2: Filter by authenticated user
+    const decks = await db.select()
+      .from(decksTable)
+      .where(eq(decksTable.userId, userId));
+
+    return NextResponse.json({ decks });
+  } catch (error) {
+    console.error('Error fetching decks:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch decks' }, 
+      { status: 500 }
+    );
+  }
+}
+```
+
+## Server Actions Pattern
+
+```typescript
+// actions/deck-actions.ts
+'use server';
+
+import { auth } from '@clerk/nextjs/server';
+import { db } from '@/db';
+import { decksTable } from '@/db/schema';
+import { eq, and } from 'drizzle-orm';
+import { revalidatePath } from 'next/cache';
+
+export async function deleteDeck(deckId: number) {
+  // ✅ STEP 1: Always authenticate first
+  const { userId } = await auth();
+  if (!userId) {
+    throw new Error('Unauthorized');
+  }
+
+  try {
+    // ✅ STEP 2: Verify ownership before action
+    const deck = await db.select()
+      .from(decksTable)
+      .where(and(
+        eq(decksTable.id, deckId),
+        eq(decksTable.userId, userId)
+      ))
+      .limit(1);
+
+    if (!deck.length) {
+      return { success: false, error: 'Deck not found or unauthorized' };
+    }
+
+    // ✅ STEP 3: Perform action with ownership constraint
+    await db.delete(decksTable)
+      .where(and(
+        eq(decksTable.id, deckId),
+        eq(decksTable.userId, userId)
+      ));
+
+    revalidatePath('/dashboard');
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting deck:', error);
+    return { success: false, error: 'Failed to delete deck' };
+  }
+}
+```
+
+## Component Authentication
+
+For client components, use Clerk's authentication hooks:
+
+```typescript
+import { useUser } from '@clerk/nextjs';
+
+export function UserDashboard() {
+  const { user, isLoaded } = useUser();
+  
+  if (!isLoaded) return <div>Loading...</div>;
+  if (!user) return <div>Please sign in</div>;
+  
+  // User is authenticated, safe to show user-specific content
+  return <div>Welcome, {user.firstName}!</div>;
+}
+```
+
+## Critical Security Rules
+
+### ❌ NEVER DO THESE:
+1. **Never trust client-provided user IDs**
+   ```typescript
+   // ❌ DANGEROUS
+   function getDeck(deckId: number, userIdFromClient: string) {
+     return db.select().from(decksTable).where(eq(decksTable.userId, userIdFromClient));
+   }
+   ```
+
+2. **Never skip authentication checks**
+   ```typescript
+   // ❌ DANGEROUS
+   function getAllDecks() {
+     return db.select().from(decksTable); // Returns ALL users' data!
+   }
+   ```
+
+3. **Never use user data without ownership verification**
+   ```typescript
+   // ❌ DANGEROUS
+   function updateDeck(deckId: number, updates: any) {
+     return db.update(decksTable).set(updates).where(eq(decksTable.id, deckId));
+   }
+   ```
+
+### ✅ ALWAYS DO THESE:
+1. **Always call `auth()` before data operations**
+2. **Always filter queries by authenticated userId** 
+3. **Always verify ownership before mutations**
+4. **Always use proper error handling for unauthorized access**
+5. **Always validate that operations return expected results**
+
+## Database Schema Requirements
+
+All user-owned tables MUST include a `userId` field referencing Clerk user IDs:
+
+```typescript
+export const decksTable = pgTable("decks", {
+  id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  title: varchar({ length: 255 }).notNull(),
+  description: text(),
+  userId: varchar({ length: 255 }).notNull(), // ✅ REQUIRED for all user data
+  createdAt: timestamp().defaultNow().notNull(),
+  updatedAt: timestamp().defaultNow().notNull(),
+});
+```
+
+## Testing Authorization
+
+When implementing features, always test:
+1. ✅ Authenticated users can access their own data
+2. ❌ Authenticated users CANNOT access other users' data  
+3. ❌ Unauthenticated requests are rejected
+4. ❌ Manipulated requests (with wrong user IDs) are rejected
+
+**Remember**: In a multi-user application, data isolation is CRITICAL. When in doubt, add extra ownership checks rather than risk exposing user data.

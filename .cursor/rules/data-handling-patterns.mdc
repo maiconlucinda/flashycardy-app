@@ -1,0 +1,305 @@
+---
+alwaysApply: true
+---
+
+# Data Handling Architecture Rules
+
+This application follows strict patterns for data handling to ensure security, type safety, and maintainability.
+
+## Core Principles
+
+### 1. Data Retrieval: Server Components Only
+**ALL** data fetching from the database MUST be done in Server Components, never in Client Components.
+
+```typescript
+// ✅ CORRECT: Server Component with data fetching
+import { auth } from '@clerk/nextjs/server';
+import { db } from '@/db';
+import { decksTable } from '@/db/schema';
+import { eq } from 'drizzle-orm';
+
+export default async function DecksPage() {
+  const { userId } = await auth();
+  if (!userId) return <div>Please sign in</div>;
+
+  // ✅ Direct database access in Server Component
+  const decks = await db.select()
+    .from(decksTable)
+    .where(eq(decksTable.userId, userId));
+
+  return (
+    <div>
+      {decks.map(deck => (
+        <DeckCard key={deck.id} deck={deck} />
+      ))}
+    </div>
+  );
+}
+```
+
+```typescript
+// ❌ WRONG: Client Component trying to fetch data
+'use client';
+import { useEffect, useState } from 'react';
+
+export default function DecksPage() {
+  const [decks, setDecks] = useState([]);
+  
+  useEffect(() => {
+    // ❌ NEVER fetch data in Client Components
+    fetch('/api/decks').then(res => res.json()).then(setDecks);
+  }, []);
+  
+  return <div>{/* ... */}</div>;
+}
+```
+
+### 2. Data Mutations: Server Actions Only
+**ALL** database mutations (INSERT, UPDATE, DELETE) MUST be done via Server Actions, never via API routes or client-side code.
+
+```typescript
+// ✅ CORRECT: Server Action for mutations
+'use server';
+
+import { auth } from '@clerk/nextjs/server';
+import { db } from '@/db';
+import { decksTable } from '@/db/schema';
+import { eq, and } from 'drizzle-orm';
+import { revalidatePath } from 'next/cache';
+import { z } from 'zod';
+
+const CreateDeckSchema = z.object({
+  title: z.string().min(1, 'Title is required').max(255),
+  description: z.string().optional(),
+});
+
+type CreateDeckInput = z.infer<typeof CreateDeckSchema>;
+
+export async function createDeck(input: CreateDeckInput) {
+  // ✅ Always validate with Zod
+  const validatedInput = CreateDeckSchema.parse(input);
+  
+  // ✅ Always authenticate
+  const { userId } = await auth();
+  if (!userId) {
+    throw new Error('Unauthorized');
+  }
+
+  try {
+    const [newDeck] = await db.insert(decksTable)
+      .values({
+        ...validatedInput,
+        userId
+      })
+      .returning();
+
+    revalidatePath('/dashboard');
+    return { success: true, deck: newDeck };
+  } catch (error) {
+    console.error('Error creating deck:', error);
+    return { success: false, error: 'Failed to create deck' };
+  }
+}
+```
+
+```typescript
+// ❌ WRONG: API route for mutations
+// app/api/decks/route.ts
+export async function POST(request: Request) {
+  // ❌ NEVER use API routes for database mutations
+  const body = await request.json();
+  await db.insert(decksTable).values(body);
+  return Response.json({ success: true });
+}
+```
+
+### 3. Data Validation: Zod Schemas Required
+**ALL** data passed to Server Actions MUST be validated using Zod schemas with proper TypeScript typing.
+
+```typescript
+// ✅ CORRECT: Zod schema with TypeScript types
+import { z } from 'zod';
+
+const UpdateCardSchema = z.object({
+  id: z.number().positive(),
+  front: z.string().min(1, 'Front side is required'),
+  back: z.string().min(1, 'Back side is required'),
+  difficulty: z.enum(['easy', 'medium', 'hard']).optional(),
+});
+
+type UpdateCardInput = z.infer<typeof UpdateCardSchema>;
+
+export async function updateCard(input: UpdateCardInput) {
+  const validatedInput = UpdateCardSchema.parse(input);
+  // ... rest of implementation
+}
+```
+
+```typescript
+// ❌ WRONG: Using FormData as type
+export async function updateCard(formData: FormData) {
+  // ❌ NEVER use FormData as the parameter type
+  const front = formData.get('front') as string;
+  // ... rest of implementation
+}
+```
+
+```typescript
+// ❌ WRONG: No validation
+export async function updateCard(input: any) {
+  // ❌ NEVER accept unvalidated input
+  await db.update(cardsTable).set(input);
+}
+```
+
+### 4. Client Component Integration
+Client Components should call Server Actions with properly typed data:
+
+```typescript
+// ✅ CORRECT: Client Component calling Server Action
+'use client';
+
+import { createDeck } from '@/actions/deck-actions';
+import { useState } from 'react';
+
+export function CreateDeckForm() {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    
+    // ✅ Pass typed object to Server Action
+    const result = await createDeck({
+      title,
+      description
+    });
+    
+    if (result.success) {
+      setTitle('');
+      setDescription('');
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input 
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Deck title"
+      />
+      <textarea 
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        placeholder="Description"
+      />
+      <button type="submit">Create Deck</button>
+    </form>
+  );
+}
+```
+
+## Required Patterns
+
+### Server Action Template
+Every Server Action MUST follow this pattern:
+
+```typescript
+'use server';
+
+import { auth } from '@clerk/nextjs/server';
+import { db } from '@/db';
+import { z } from 'zod';
+import { revalidatePath } from 'next/cache';
+
+// 1. Define Zod schema
+const ActionSchema = z.object({
+  // Define your input schema
+});
+
+type ActionInput = z.infer<typeof ActionSchema>;
+
+// 2. Server Action with typed input
+export async function actionName(input: ActionInput) {
+  // 3. Validate input
+  const validatedInput = ActionSchema.parse(input);
+  
+  // 4. Authenticate user
+  const { userId } = await auth();
+  if (!userId) {
+    throw new Error('Unauthorized');
+  }
+
+  try {
+    // 5. Perform database operation with ownership checks
+    // ... database operations ...
+    
+    // 6. Revalidate relevant paths
+    revalidatePath('/relevant-path');
+    
+    return { success: true, data: result };
+  } catch (error) {
+    console.error('Action error:', error);
+    return { success: false, error: 'Operation failed' };
+  }
+}
+```
+
+### Server Component Template
+Every data-fetching Server Component MUST follow this pattern:
+
+```typescript
+import { auth } from '@clerk/nextjs/server';
+import { db } from '@/db';
+import { redirect } from 'next/navigation';
+
+export default async function ComponentName() {
+  // 1. Authenticate user
+  const { userId } = await auth();
+  if (!userId) {
+    redirect('/sign-in');
+  }
+
+  // 2. Fetch data with ownership filter
+  const data = await db.select()
+    .from(tableTable)
+    .where(eq(tableTable.userId, userId));
+
+  // 3. Render with Client Components for interactivity
+  return (
+    <div>
+      {data.map(item => (
+        <InteractiveComponent key={item.id} item={item} />
+      ))}
+    </div>
+  );
+}
+```
+
+## Forbidden Patterns
+
+❌ **NEVER DO:**
+1. **Fetch data in Client Components** - Use Server Components instead
+2. **Use API routes for database mutations** - Use Server Actions instead  
+3. **Accept FormData as Server Action parameter type** - Use Zod-validated TypeScript types
+4. **Skip input validation** - Always validate with Zod schemas
+5. **Use `any` types for Server Action inputs** - Always use proper TypeScript types derived from Zod schemas
+
+## File Organization
+
+```
+src/
+├── actions/           # Server Actions grouped by feature
+│   ├── deck-actions.ts
+│   ├── card-actions.ts
+│   └── user-actions.ts
+├── components/        # Client Components for UI
+├── app/              # Server Components for pages
+└── lib/
+    ├── schemas/      # Zod validation schemas
+    │   ├── deck.ts
+    │   └── card.ts
+    └── types/        # TypeScript type definitions
+```
+
+These patterns ensure type safety, security, and maintainable code throughout the application. Every data operation must follow these rules without exception.

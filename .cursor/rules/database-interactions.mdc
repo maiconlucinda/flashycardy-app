@@ -1,0 +1,149 @@
+---
+alwaysApply: true
+description: Database interaction rules for Drizzle ORM
+---
+
+# Database Interaction Rules
+
+All database interactions MUST use the established Drizzle ORM setup and schema.
+
+## Core Requirements
+
+### 1. Database Connection
+- **ALWAYS** use the database connection from [src/db/index.ts](mdc:src/db/index.ts)
+- Import the `db` instance: `import { db } from '@/db'`
+- **NEVER** create direct database connections or use raw SQL without Drizzle
+
+### 2. Schema Usage
+- **ALWAYS** use the schema definitions from [src/db/schema.ts](mdc:src/db/schema.ts)
+- Import tables: `import { decksTable, cardsTable } from '@/db/schema'`
+- **NEVER** reference table names as strings - always use schema table objects
+
+### 3. Query Patterns
+Use Drizzle's query methods exclusively:
+
+#### SELECT Operations
+```typescript
+import { db } from '@/db';
+import { decksTable, cardsTable } from '@/db/schema';
+import { eq, and, desc } from 'drizzle-orm';
+
+// Simple select
+const decks = await db.select().from(decksTable);
+
+// With conditions
+const userDecks = await db.select()
+  .from(decksTable)
+  .where(eq(decksTable.userId, userId));
+
+// With joins
+const decksWithCards = await db.select()
+  .from(decksTable)
+  .leftJoin(cardsTable, eq(decksTable.id, cardsTable.deckId));
+```
+
+#### INSERT Operations
+```typescript
+// Single insert
+const [newDeck] = await db.insert(decksTable)
+  .values({
+    title: 'New Deck',
+    description: 'Description',
+    userId: 'user_123'
+  })
+  .returning();
+
+// Multiple inserts
+await db.insert(cardsTable)
+  .values([
+    { front: 'Question 1', back: 'Answer 1', deckId: deckId },
+    { front: 'Question 2', back: 'Answer 2', deckId: deckId }
+  ]);
+```
+
+#### UPDATE Operations
+```typescript
+await db.update(decksTable)
+  .set({ 
+    title: 'Updated Title',
+    updatedAt: new Date()
+  })
+  .where(eq(decksTable.id, deckId));
+```
+
+#### DELETE Operations
+```typescript
+await db.delete(cardsTable)
+  .where(eq(cardsTable.deckId, deckId));
+```
+
+### 4. Transaction Handling
+For multi-table operations, use Drizzle transactions:
+
+```typescript
+await db.transaction(async (tx) => {
+  const [deck] = await tx.insert(decksTable)
+    .values({ title, description, userId })
+    .returning();
+    
+  await tx.insert(cardsTable)
+    .values(cards.map(card => ({ ...card, deckId: deck.id })));
+});
+```
+
+### 5. Environment Variables
+- Database credentials MUST be stored in `.env` file
+- Use `process.env.DATABASE_URL` for connection string
+- **NEVER** hardcode database connection details
+
+### 6. Type Safety
+- Always use TypeScript with proper typing
+- Leverage Drizzle's inferred types for schema objects
+- Use `typeof decksTable.$inferInsert` for insert types
+- Use `typeof decksTable.$inferSelect` for select types
+
+## Forbidden Practices
+
+❌ **DO NOT:**
+- Use raw SQL queries without Drizzle's `sql` template literal
+- Create direct database connections bypassing the established `db` instance
+- Reference table/column names as strings
+- Hardcode database credentials
+- Use other ORMs alongside Drizzle
+- Perform database operations without proper error handling
+
+## Migration Guidelines
+
+- Use Drizzle Kit for all schema changes
+- Run `npm run db:generate` to create migrations
+- Run `npm run db:migrate` to apply migrations
+- Update [src/db/schema.ts](mdc:src/db/schema.ts) for any schema modifications
+
+## Example Service Pattern
+
+```typescript
+// services/deck.service.ts
+import { db } from '@/db';
+import { decksTable, cardsTable } from '@/db/schema';
+import { eq, and } from 'drizzle-orm';
+
+export class DeckService {
+  static async getDecksForUser(userId: string) {
+    return await db.select()
+      .from(decksTable)
+      .where(eq(decksTable.userId, userId));
+  }
+
+  static async getDeckWithCards(deckId: number, userId: string) {
+    return await db.select()
+      .from(decksTable)
+      .leftJoin(cardsTable, eq(decksTable.id, cardsTable.deckId))
+      .where(and(
+        eq(decksTable.id, deckId),
+        eq(decksTable.userId, userId)
+      ));
+  }
+}
+```
+
+Always follow these patterns to ensure consistent, type-safe, and maintainable database interactions throughout the application.

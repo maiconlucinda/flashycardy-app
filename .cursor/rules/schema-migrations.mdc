@@ -1,0 +1,225 @@
+---
+description: Schema modifications and migration guidelines
+globs: src/db/schema.ts,drizzle/**/*
+---
+
+# Schema Modifications & Migration Guidelines
+
+All database schema changes must follow the proper Drizzle workflow to ensure data integrity and consistency.
+
+## Schema Modification Process
+
+### 1. Update Schema File
+Modify [src/db/schema.ts](mdc:src/db/schema.ts) following these patterns:
+
+#### Table Definitions
+```typescript
+import { 
+  integer, 
+  pgTable, 
+  varchar, 
+  text, 
+  timestamp, 
+  boolean, 
+  serial 
+} from "drizzle-orm/pg-core";
+
+export const exampleTable = pgTable("table_name", {
+  id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  // Use consistent naming: camelCase for properties
+  createdAt: timestamp().defaultNow().notNull(),
+  updatedAt: timestamp().defaultNow().notNull(),
+});
+```
+
+#### Column Types Guidelines
+```typescript
+// Primary keys
+id: integer().primaryKey().generatedAlwaysAsIdentity(),
+
+// Foreign keys with cascading delete
+deckId: integer().notNull().references(() => decksTable.id, { onDelete: "cascade" }),
+
+// User IDs (Clerk integration)
+userId: varchar({ length: 255 }).notNull(),
+
+// Text fields
+title: varchar({ length: 255 }).notNull(),
+description: text(), // nullable for optional descriptions
+content: text().notNull(),
+
+// Timestamps
+createdAt: timestamp().defaultNow().notNull(),
+updatedAt: timestamp().defaultNow().notNull(),
+
+// Booleans with defaults
+isActive: boolean().default(true).notNull(),
+isPublic: boolean().default(false).notNull(),
+
+// Optional fields
+notes: text(), // nullable by default
+```
+
+### 2. Generate Migration
+After schema changes, generate migration:
+
+```bash
+npm run db:generate
+# or
+npx drizzle-kit generate
+```
+
+### 3. Review Migration
+- **ALWAYS** review generated SQL in the `drizzle/` directory
+- Ensure migration doesn't cause data loss
+- Check for proper indexes and constraints
+
+### 4. Apply Migration
+```bash
+npm run db:migrate
+# or
+npx drizzle-kit migrate
+```
+
+## Common Schema Patterns
+
+### User-Owned Resources
+```typescript
+export const userOwnedTable = pgTable("user_resources", {
+  id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  userId: varchar({ length: 255 }).notNull(), // Clerk user ID
+  // ... other fields
+  createdAt: timestamp().defaultNow().notNull(),
+  updatedAt: timestamp().defaultNow().notNull(),
+});
+```
+
+### Relationship Tables
+```typescript
+export const parentTable = pgTable("parents", {
+  id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  name: varchar({ length: 255 }).notNull(),
+});
+
+export const childTable = pgTable("children", {
+  id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  parentId: integer().notNull().references(() => parentTable.id, { 
+    onDelete: "cascade" 
+  }),
+  name: varchar({ length: 255 }).notNull(),
+});
+```
+
+### Lookup/Reference Tables
+```typescript
+export const categoriesTable = pgTable("categories", {
+  id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  name: varchar({ length: 100 }).notNull().unique(),
+  slug: varchar({ length: 100 }).notNull().unique(),
+  createdAt: timestamp().defaultNow().notNull(),
+});
+```
+
+## Migration Best Practices
+
+### 1. Backward Compatibility
+- Avoid breaking changes when possible
+- Add new columns as nullable first, then populate and make required
+- Use separate migrations for complex changes
+
+### 2. Data Migration Example
+```typescript
+// For complex data transformations, create custom migration scripts
+// scripts/migrate-data.ts
+import { db } from '@/db';
+import { oldTable, newTable } from '@/db/schema';
+
+async function migrateData() {
+  const oldData = await db.select().from(oldTable);
+  
+  for (const record of oldData) {
+    await db.insert(newTable).values({
+      // Transform data as needed
+      newField: transformOldField(record.oldField),
+      // ... other fields
+    });
+  }
+}
+```
+
+### 3. Index Management
+```typescript
+// Add indexes for frequently queried columns
+import { index } from "drizzle-orm/pg-core";
+
+export const usersTable = pgTable("users", {
+  id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  email: varchar({ length: 255 }).notNull(),
+  createdAt: timestamp().defaultNow().notNull(),
+}, (table) => ({
+  emailIdx: index("email_idx").on(table.email),
+  createdAtIdx: index("created_at_idx").on(table.createdAt),
+}));
+```
+
+## Configuration Updates
+
+### Drizzle Config
+Ensure [drizzle.config.ts](mdc:drizzle.config.ts) remains properly configured:
+
+```typescript
+import 'dotenv/config';
+import { defineConfig } from 'drizzle-kit';
+
+export default defineConfig({
+  out: './drizzle',
+  schema: './src/db/schema.ts',
+  dialect: 'postgresql',
+  dbCredentials: {
+    url: process.env.DATABASE_URL!,
+  },
+});
+```
+
+## Required Naming Conventions
+
+- **Tables**: snake_case (e.g., `user_profiles`, `deck_cards`)
+- **Columns**: camelCase in schema, snake_case in database
+- **Indexes**: descriptive with `_idx` suffix
+- **Foreign Keys**: reference the related table clearly
+
+## Forbidden Practices
+
+❌ **DO NOT:**
+- Modify existing migrations after they've been applied
+- Delete columns without proper migration strategy
+- Change column types without considering data compatibility
+- Skip migration generation after schema changes
+- Hardcode table or column names outside of schema
+
+## Testing Schema Changes
+
+```typescript
+// scripts/test-schema.ts
+import { db } from '@/db';
+import { newTable } from '@/db/schema';
+
+async function testSchema() {
+  try {
+    // Test basic operations
+    const [record] = await db.insert(newTable)
+      .values({ /* test data */ })
+      .returning();
+    
+    console.log('Insert successful:', record);
+    
+    const selected = await db.select().from(newTable).limit(1);
+    console.log('Select successful:', selected);
+    
+  } catch (error) {
+    console.error('Schema test failed:', error);
+  }
+}
+```
+
+Always follow this workflow to ensure database schema changes are applied safely and consistently across all environments.

@@ -1,0 +1,185 @@
+---
+globs: **/api/**/*.ts,**/actions/**/*.ts,**/app/**/route.ts
+description: API routes and server actions database patterns
+---
+
+# API Routes & Server Actions Database Patterns
+
+For Next.js API routes and server actions, follow these specific patterns when interacting with the database.
+
+## API Route Pattern
+
+```typescript
+// app/api/decks/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/db';
+import { decksTable } from '@/db/schema';
+import { eq } from 'drizzle-orm';
+import { auth } from '@clerk/nextjs';
+
+export async function GET() {
+  try {
+    const { userId } = auth();
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const decks = await db.select()
+      .from(decksTable)
+      .where(eq(decksTable.userId, userId));
+
+    return NextResponse.json({ decks });
+  } catch (error) {
+    console.error('Error fetching decks:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch decks' }, 
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const { userId } = auth();
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { title, description } = await request.json();
+
+    const [deck] = await db.insert(decksTable)
+      .values({ title, description, userId })
+      .returning();
+
+    return NextResponse.json({ deck }, { status: 201 });
+  } catch (error) {
+    console.error('Error creating deck:', error);
+    return NextResponse.json(
+      { error: 'Failed to create deck' }, 
+      { status: 500 }
+    );
+  }
+}
+```
+
+## Server Action Pattern
+
+```typescript
+// actions/deck-actions.ts
+'use server';
+
+import { db } from '@/db';
+import { decksTable, cardsTable } from '@/db/schema';
+import { eq, and } from 'drizzle-orm';
+import { auth } from '@clerk/nextjs';
+import { revalidatePath } from 'next/cache';
+
+export async function createDeck(formData: FormData) {
+  const { userId } = auth();
+  if (!userId) {
+    throw new Error('Unauthorized');
+  }
+
+  const title = formData.get('title') as string;
+  const description = formData.get('description') as string;
+
+  try {
+    const [deck] = await db.insert(decksTable)
+      .values({ title, description, userId })
+      .returning();
+
+    revalidatePath('/dashboard');
+    return { success: true, deck };
+  } catch (error) {
+    console.error('Error creating deck:', error);
+    return { success: false, error: 'Failed to create deck' };
+  }
+}
+
+export async function deleteDeck(deckId: number) {
+  const { userId } = auth();
+  if (!userId) {
+    throw new Error('Unauthorized');
+  }
+
+  try {
+    // Verify ownership before deletion
+    const deck = await db.select()
+      .from(decksTable)
+      .where(and(
+        eq(decksTable.id, deckId),
+        eq(decksTable.userId, userId)
+      ))
+      .limit(1);
+
+    if (!deck.length) {
+      return { success: false, error: 'Deck not found or unauthorized' };
+    }
+
+    await db.delete(decksTable)
+      .where(eq(decksTable.id, deckId));
+
+    revalidatePath('/dashboard');
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting deck:', error);
+    return { success: false, error: 'Failed to delete deck' };
+  }
+}
+```
+
+## Required Patterns
+
+### 1. Authentication Check
+- **ALWAYS** verify user authentication before database operations
+- Use `auth()` from Clerk or your auth provider
+- Return appropriate error responses for unauthorized access
+
+### 2. Error Handling
+- Wrap all database operations in try-catch blocks
+- Log errors with descriptive messages
+- Return appropriate HTTP status codes in API routes
+- Return success/error objects in server actions
+
+### 3. Data Validation
+- Validate input data before database operations
+- Use TypeScript types for request/response objects
+- Sanitize user input to prevent injection attacks
+
+### 4. Response Patterns
+**API Routes:**
+```typescript
+// Success
+return NextResponse.json({ data }, { status: 200 });
+
+// Error
+return NextResponse.json({ error: 'Message' }, { status: 400 });
+```
+
+**Server Actions:**
+```typescript
+// Success
+return { success: true, data };
+
+// Error
+return { success: false, error: 'Message' };
+```
+
+### 5. Cache Revalidation
+- Use `revalidatePath()` in server actions that modify data
+- Revalidate relevant paths after database mutations
+
+### 6. Authorization
+- Verify user ownership of resources before operations
+- Use proper WHERE clauses with user ID checks
+- Never trust client-provided user IDs
+
+## Database Import Pattern
+```typescript
+// Always import from the centralized locations
+import { db } from '@/db';
+import { decksTable, cardsTable } from '@/db/schema';
+import { eq, and, or, desc, asc } from 'drizzle-orm';
+```
+
+Follow these patterns consistently across all API routes and server actions to maintain security, reliability, and code consistency.
