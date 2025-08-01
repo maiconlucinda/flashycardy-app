@@ -1,8 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
-import { db } from '@/db';
+import { getUserDecks } from '@/db/queries/decks';
 import { decksTable } from '@/db/schema';
-import { eq } from 'drizzle-orm';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -22,9 +21,7 @@ export default async function Dashboard() {
   
   try {
     // Buscar decks do usuário
-    userDecks = await db.select()
-      .from(decksTable)
-      .where(eq(decksTable.userId, userId));
+    userDecks = await getUserDecks(userId);
   } catch (error) {
     console.error('Error fetching user decks:', error);
     hasError = true;

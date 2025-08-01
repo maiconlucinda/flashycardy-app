@@ -3,6 +3,8 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { eq } from 'drizzle-orm';
 import { decksTable, cardsTable } from '../db/schema';
 import { Pool } from 'pg';
+import { createDeck, getAllDecks, deleteDeckById, updateDeck } from '../db/queries/decks';
+import { createCardsForTesting, getCardsByDeckId, deleteCardsByDeckId } from '../db/queries/cards';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL!,
@@ -22,7 +24,7 @@ async function main() {
       userId: 'test-user-123',
     };
 
-    const [newDeck] = await db.insert(decksTable).values(deck).returning();
+    const newDeck = await createDeck(deck);
     console.log('✅ New deck created:', newDeck);
 
     // Criar cards de teste
@@ -39,29 +41,26 @@ async function main() {
       }
     ];
 
-    await db.insert(cardsTable).values(cards);
+    await createCardsForTesting(cards);
     console.log('✅ Cards created!');
 
     // Buscar todos os decks
-    const allDecks = await db.select().from(decksTable);
+    const allDecks = await getAllDecks();
     console.log('📚 All decks:', allDecks);
 
     // Buscar cards do deck
-    const deckCards = await db.select().from(cardsTable).where(eq(cardsTable.deckId, newDeck.id));
+    const deckCards = await getCardsByDeckId(newDeck.id);
     console.log('🃏 Cards in deck:', deckCards);
 
     // Atualizar deck
-    await db
-      .update(decksTable)
-      .set({
-        description: 'Advanced Portuguese vocabulary',
-      })
-      .where(eq(decksTable.id, newDeck.id));
+    await updateDeck(newDeck.id, 'test-user-123', {
+      description: 'Advanced Portuguese vocabulary',
+    });
     console.log('✅ Deck updated!');
 
     // Limpar dados de teste
-    await db.delete(cardsTable).where(eq(cardsTable.deckId, newDeck.id));
-    await db.delete(decksTable).where(eq(decksTable.id, newDeck.id));
+    await deleteCardsByDeckId(newDeck.id);
+    await deleteDeckById(newDeck.id);
     console.log('✅ Test data cleaned up!');
 
     console.log('🎉 Flashcard database test successful!');

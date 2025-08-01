@@ -1,18 +1,39 @@
 ---
 alwaysApply: true
 ---
-
 # Data Handling Architecture Rules
 
 This application follows strict patterns for data handling to ensure security, type safety, and maintainability.
 
 ## Core Principles
 
-### 1. Data Retrieval: Server Components Only
-**ALL** data fetching from the database MUST be done in Server Components, never in Client Components.
+### 1. Query Functions: All Database Access via Helper Functions
+**ALL** database operations MUST be done through helper functions in the `db/queries` directory, never with direct database access.
 
 ```typescript
-// ✅ CORRECT: Server Component with data fetching
+// ✅ CORRECT: Server Component using query function
+import { auth } from '@clerk/nextjs/server';
+import { getUserDecks } from '@/db/queries/decks';
+
+export default async function DecksPage() {
+  const { userId } = await auth();
+  if (!userId) return <div>Please sign in</div>;
+
+  // ✅ Use query function instead of direct db access
+  const decks = await getUserDecks(userId);
+
+  return (
+    <div>
+      {decks.map(deck => (
+        <DeckCard key={deck.id} deck={deck} />
+      ))}
+    </div>
+  );
+}
+```
+
+```typescript
+// ❌ WRONG: Direct database access in Server Component
 import { auth } from '@clerk/nextjs/server';
 import { db } from '@/db';
 import { decksTable } from '@/db/schema';
@@ -22,18 +43,12 @@ export default async function DecksPage() {
   const { userId } = await auth();
   if (!userId) return <div>Please sign in</div>;
 
-  // ✅ Direct database access in Server Component
+  // ❌ NEVER access database directly
   const decks = await db.select()
     .from(decksTable)
     .where(eq(decksTable.userId, userId));
 
-  return (
-    <div>
-      {decks.map(deck => (
-        <DeckCard key={deck.id} deck={deck} />
-      ))}
-    </div>
-  );
+  return <div>{/* ... */}</div>;
 }
 ```
 
@@ -54,17 +69,15 @@ export default function DecksPage() {
 }
 ```
 
-### 2. Data Mutations: Server Actions Only
-**ALL** database mutations (INSERT, UPDATE, DELETE) MUST be done via Server Actions, never via API routes or client-side code.
+### 2. Data Mutations: Server Actions with Query Functions
+**ALL** database mutations (INSERT, UPDATE, DELETE) MUST be done via Server Actions using query functions from `db/queries`, never via API routes or direct database access.
 
 ```typescript
-// ✅ CORRECT: Server Action for mutations
+// ✅ CORRECT: Server Action using query function
 'use server';
 
 import { auth } from '@clerk/nextjs/server';
-import { db } from '@/db';
-import { decksTable } from '@/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { createDeck as createDeckQuery } from '@/db/queries/decks';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
@@ -86,12 +99,11 @@ export async function createDeck(input: CreateDeckInput) {
   }
 
   try {
-    const [newDeck] = await db.insert(decksTable)
-      .values({
-        ...validatedInput,
-        userId
-      })
-      .returning();
+    // ✅ Use query function instead of direct db access
+    const newDeck = await createDeckQuery({
+      ...validatedInput,
+      userId
+    });
 
     revalidatePath('/dashboard');
     return { success: true, deck: newDeck };
@@ -99,6 +111,27 @@ export async function createDeck(input: CreateDeckInput) {
     console.error('Error creating deck:', error);
     return { success: false, error: 'Failed to create deck' };
   }
+}
+```
+
+```typescript
+// ❌ WRONG: Direct database access in Server Action
+'use server';
+
+import { auth } from '@clerk/nextjs/server';
+import { db } from '@/db';
+import { decksTable } from '@/db/schema';
+
+export async function createDeck(input: any) {
+  const { userId } = await auth();
+  if (!userId) throw new Error('Unauthorized');
+
+  // ❌ NEVER access database directly
+  const [newDeck] = await db.insert(decksTable)
+    .values({ ...input, userId })
+    .returning();
+
+  return newDeck;
 }
 ```
 
@@ -208,7 +241,7 @@ Every Server Action MUST follow this pattern:
 'use server';
 
 import { auth } from '@clerk/nextjs/server';
-import { db } from '@/db';
+import { actionNameQuery } from '@/db/queries/feature';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 
@@ -231,8 +264,11 @@ export async function actionName(input: ActionInput) {
   }
 
   try {
-    // 5. Perform database operation with ownership checks
-    // ... database operations ...
+    // 5. Call query function instead of direct database access
+    const result = await actionNameQuery({
+      ...validatedInput,
+      userId
+    });
     
     // 6. Revalidate relevant paths
     revalidatePath('/relevant-path');
@@ -250,7 +286,7 @@ Every data-fetching Server Component MUST follow this pattern:
 
 ```typescript
 import { auth } from '@clerk/nextjs/server';
-import { db } from '@/db';
+import { getUserData } from '@/db/queries/feature';
 import { redirect } from 'next/navigation';
 
 export default async function ComponentName() {
@@ -260,10 +296,8 @@ export default async function ComponentName() {
     redirect('/sign-in');
   }
 
-  // 2. Fetch data with ownership filter
-  const data = await db.select()
-    .from(tableTable)
-    .where(eq(tableTable.userId, userId));
+  // 2. Fetch data using query function
+  const data = await getUserData(userId);
 
   // 3. Render with Client Components for interactivity
   return (
@@ -279,11 +313,12 @@ export default async function ComponentName() {
 ## Forbidden Patterns
 
 ❌ **NEVER DO:**
-1. **Fetch data in Client Components** - Use Server Components instead
-2. **Use API routes for database mutations** - Use Server Actions instead  
-3. **Accept FormData as Server Action parameter type** - Use Zod-validated TypeScript types
-4. **Skip input validation** - Always validate with Zod schemas
-5. **Use `any` types for Server Action inputs** - Always use proper TypeScript types derived from Zod schemas
+1. **Direct database access** - Always use query functions from `db/queries` directory
+2. **Fetch data in Client Components** - Use Server Components instead
+3. **Use API routes for database mutations** - Use Server Actions instead  
+4. **Accept FormData as Server Action parameter type** - Use Zod-validated TypeScript types
+5. **Skip input validation** - Always validate with Zod schemas
+6. **Use `any` types for Server Action inputs** - Always use proper TypeScript types derived from Zod schemas
 
 ## File Organization
 
@@ -295,11 +330,102 @@ src/
 │   └── user-actions.ts
 ├── components/        # Client Components for UI
 ├── app/              # Server Components for pages
+├── db/
+│   ├── index.ts      # Database connection
+│   ├── schema.ts     # Database schema
+│   └── queries/      # Database query functions (REQUIRED)
+│       ├── decks.ts  # Deck-related queries
+│       ├── cards.ts  # Card-related queries
+│       └── users.ts  # User-related queries
 └── lib/
     ├── schemas/      # Zod validation schemas
     │   ├── deck.ts
     │   └── card.ts
     └── types/        # TypeScript type definitions
 ```
+
+## Query Function Structure
+
+All query functions in `db/queries/` MUST follow these patterns:
+
+### Read Operations
+```typescript
+// db/queries/decks.ts
+import { db } from '@/db';
+import { decksTable, cardsTable } from '@/db/schema';
+import { eq, and, desc } from 'drizzle-orm';
+
+export async function getUserDecks(userId: string) {
+  return await db.select()
+    .from(decksTable)
+    .where(eq(decksTable.userId, userId))
+    .orderBy(desc(decksTable.updatedAt));
+}
+
+export async function getDeckWithCards(deckId: number, userId: string) {
+  return await db.select()
+    .from(decksTable)
+    .leftJoin(cardsTable, eq(decksTable.id, cardsTable.deckId))
+    .where(and(
+      eq(decksTable.id, deckId),
+      eq(decksTable.userId, userId)
+    ));
+}
+```
+
+### Write Operations
+```typescript
+// db/queries/decks.ts
+import { db } from '@/db';
+import { decksTable } from '@/db/schema';
+import { eq, and } from 'drizzle-orm';
+
+export async function createDeck(data: {
+  title: string;
+  description?: string;
+  userId: string;
+}) {
+  const [newDeck] = await db.insert(decksTable)
+    .values(data)
+    .returning();
+  
+  return newDeck;
+}
+
+export async function updateDeck(
+  deckId: number,
+  userId: string,
+  updates: { title?: string; description?: string }
+) {
+  const [updatedDeck] = await db.update(decksTable)
+    .set({ ...updates, updatedAt: new Date() })
+    .where(and(
+      eq(decksTable.id, deckId),
+      eq(decksTable.userId, userId)
+    ))
+    .returning();
+    
+  return updatedDeck;
+}
+
+export async function deleteDeck(deckId: number, userId: string) {
+  const [deletedDeck] = await db.delete(decksTable)
+    .where(and(
+      eq(decksTable.id, deckId),
+      eq(decksTable.userId, userId)
+    ))
+    .returning();
+    
+  return deletedDeck;
+}
+```
+
+### Query Function Rules
+1. **Always include ownership checks** - Filter by userId for user-owned data
+2. **Use proper TypeScript types** - Define parameter types explicitly
+3. **Return meaningful data** - Use `.returning()` for mutations when needed
+4. **Handle errors gracefully** - Let calling functions handle try/catch
+5. **Keep functions focused** - One query operation per function
+6. **Use descriptive names** - Make function purpose clear from name
 
 These patterns ensure type safety, security, and maintainable code throughout the application. Every data operation must follow these rules without exception.
