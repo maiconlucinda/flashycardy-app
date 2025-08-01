@@ -1,10 +1,9 @@
 import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
+import Link from 'next/link';
 import { getUserDecks } from '@/db/queries/decks';
 import { decksTable } from '@/db/schema';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 type Deck = typeof decksTable.$inferSelect;
@@ -86,27 +85,23 @@ export default async function Dashboard() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {userDecks.map((deck) => (
-                <Card key={deck.id} className="hover:shadow-lg transition-shadow">
-                  <CardHeader>
-                    <CardTitle>{deck.title}</CardTitle>
-                    {deck.description && (
-                      <CardDescription className="line-clamp-2">
-                        {deck.description}
-                      </CardDescription>
-                    )}
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex justify-between items-center text-sm text-muted-foreground mb-4">
-                      <span>
-                        Created: {new Date(deck.createdAt).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button size="sm">Study</Button>
-                      <Button variant="outline" size="sm">Edit</Button>
-                    </div>
-                  </CardContent>
-                </Card>
+                <Link key={deck.id} href={`/decks/${deck.id}`}>
+                  <Card className="hover:shadow-lg transition-shadow cursor-pointer">
+                    <CardHeader>
+                      <CardTitle className="text-xl">{deck.title}</CardTitle>
+                      {deck.description && (
+                        <CardDescription className="line-clamp-2">
+                          {deck.description}
+                        </CardDescription>
+                      )}
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-sm text-muted-foreground mb-4">
+                        Updated: {new Date(deck.updatedAt).toLocaleDateString()}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </Link>
               ))}
             </div>
           )}
