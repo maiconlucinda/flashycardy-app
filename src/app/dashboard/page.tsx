@@ -75,7 +75,7 @@ export default async function Dashboard() {
             <Card>
               <CardContent className="text-center py-12">
                 <p className="text-lg mb-4">
-                  You don't have any decks yet.
+                  You don&apos;t have any decks yet.
                 </p>
                 <p className="text-muted-foreground">
                   Create your first deck to start learning!

@@ -18,13 +18,11 @@ const db = drizzle(pool);
 async function main() {
   try {
     // Criar um deck de teste
-    const deck: typeof decksTable.$inferInsert = {
+    const newDeck = await createDeck({
       title: 'Portuguese Language',
       description: 'Learning Portuguese vocabulary',
       userId: 'test-user-123',
-    };
-
-    const newDeck = await createDeck(deck);
+    });
     console.log('✅ New deck created:', newDeck);
 
     // Criar cards de teste

@@ -1,9 +1,10 @@
 import { db } from '@/db';
 import { cardsTable, decksTable } from '@/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 
 /**
  * Get all cards for a specific deck with ownership check
+ * Cards are ordered by updatedAt in descending order (most recent first)
  */
 export async function getDeckCards(deckId: number, userId: string) {
   return await db.select()
@@ -12,16 +13,19 @@ export async function getDeckCards(deckId: number, userId: string) {
     .where(and(
       eq(cardsTable.deckId, deckId),
       eq(decksTable.userId, userId)
-    ));
+    ))
+    .orderBy(desc(cardsTable.updatedAt));
 }
 
 /**
  * Get cards by deck ID (for testing purposes, no ownership check)
+ * Cards are ordered by updatedAt in descending order (most recent first)
  */
 export async function getCardsByDeckId(deckId: number) {
   return await db.select()
     .from(cardsTable)
-    .where(eq(cardsTable.deckId, deckId));
+    .where(eq(cardsTable.deckId, deckId))
+    .orderBy(desc(cardsTable.updatedAt));
 }
 
 /**

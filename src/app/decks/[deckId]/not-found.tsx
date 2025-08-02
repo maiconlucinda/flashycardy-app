@@ -11,7 +11,7 @@ export default function DeckNotFound() {
             <CardHeader>
               <CardTitle className="text-2xl">Deck Not Found</CardTitle>
               <CardDescription>
-                The deck you're looking for doesn't exist or you don't have permission to view it.
+                The deck you&apos;re looking for doesn&apos;t exist or you don&apos;t have permission to view it.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -21,7 +21,7 @@ export default function DeckNotFound() {
                 </p>
                 <ul className="text-sm text-muted-foreground text-left space-y-1">
                   <li>• The deck was deleted</li>
-                  <li>• You don't own this deck</li>
+                  <li>• You don&apos;t own this deck</li>
                   <li>• The link is invalid</li>
                 </ul>
                 <div className="pt-4">
