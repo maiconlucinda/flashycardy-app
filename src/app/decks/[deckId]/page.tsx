@@ -35,16 +35,17 @@ export default async function DeckPage({ params }: DeckPageProps) {
     // Fetch deck with ownership check
     deck = await getDeckById(deckId, userId);
     
-    if (!deck) {
-      notFound();
-    }
-
     // Fetch cards for this deck
     const cardsResult = await getDeckCards(deckId, userId);
     cards = cardsResult.map(result => result.cards);
   } catch (error) {
     console.error('Error fetching deck or cards:', error);
     hasError = true;
+  }
+
+  // Check if deck exists AFTER try/catch to avoid interfering with notFound()
+  if (!hasError && !deck) {
+    notFound();
   }
 
   if (hasError) {
