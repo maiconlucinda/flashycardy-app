@@ -35,6 +35,7 @@ export function StudySessionModal({ deckId, cards, triggerButton, mode = 'standa
   // Prepare cards based on mode
   useEffect(() => {
     if (isOpen && cards.length > 0) {
+      // eslint-disable-next-line prefer-const
       let arrangedCards = [...cards];
       
       if (mode === 'shuffle') {

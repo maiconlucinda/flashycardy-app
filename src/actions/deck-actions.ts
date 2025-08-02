@@ -52,7 +52,7 @@ export async function updateDeckAction(input: UpdateDeckInput) {
     if (error instanceof z.ZodError) {
       return { 
         success: false, 
-        error: `Validation error: ${error.errors.map(e => e.message).join(', ')}` 
+        error: `Validation error: ${error.issues.map(e => e.message).join(', ')}` 
       };
     }
     

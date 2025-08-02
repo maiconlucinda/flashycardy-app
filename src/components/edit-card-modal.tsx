@@ -14,8 +14,9 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { updateCardAction, deleteCardAction } from '@/actions/card-actions';
+import { updateCardAction } from '@/actions/card-actions';
 import { toast } from 'sonner';
+import { DeleteCardModal } from '@/components/delete-card-modal';
 
 interface EditCardModalProps {
   card: {
@@ -32,7 +33,7 @@ export function EditCardModal({ card, triggerButton }: EditCardModalProps) {
   const [front, setFront] = useState(card.front);
   const [back, setBack] = useState(card.back);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Reset form when card changes or modal opens
@@ -76,38 +77,13 @@ export function EditCardModal({ card, triggerButton }: EditCardModalProps) {
     }
   };
 
-  const handleDelete = async () => {
-    if (!confirm('Tem certeza que deseja deletar este card? Esta ação não pode ser desfeita.')) {
-      return;
-    }
+  const handleDeleteClick = () => {
+    setShowDeleteModal(true);
+  };
 
-    setIsDeleting(true);
-    setError(null);
-
-    try {
-      const result = await deleteCardAction({
-        id: card.id,
-        deckId: card.deckId,
-      });
-
-      if (result.success) {
-        // Show success notification
-        toast.success('Card deletado com sucesso! 🗑️', {
-          description: 'O card foi removido do deck.',
-          duration: 3000,
-        });
-
-        // Close modal
-        setOpen(false);
-      } else {
-        setError(result.error || 'Falha ao deletar card');
-      }
-    } catch (err) {
-      console.error('Erro ao deletar card:', err);
-      setError('Ocorreu um erro inesperado. Tente novamente.');
-    } finally {
-      setIsDeleting(false);
-    }
+  const handleDeleteSuccess = () => {
+    // Close the edit modal when card is deleted
+    setOpen(false);
   };
 
   const isFormValid = front.trim().length > 0 && back.trim().length > 0;
@@ -144,7 +120,7 @@ export function EditCardModal({ card, triggerButton }: EditCardModalProps) {
                 placeholder="Digite a pergunta ou conceito..."
                 value={front}
                 onChange={(e) => setFront(e.target.value)}
-                disabled={isSubmitting || isDeleting}
+                disabled={isSubmitting}
                 maxLength={2000}
                 rows={3}
                 required
@@ -162,7 +138,7 @@ export function EditCardModal({ card, triggerButton }: EditCardModalProps) {
                 placeholder="Digite a resposta ou definição..."
                 value={back}
                 onChange={(e) => setBack(e.target.value)}
-                disabled={isSubmitting || isDeleting}
+                disabled={isSubmitting}
                 maxLength={2000}
                 rows={3}
                 required
@@ -178,23 +154,23 @@ export function EditCardModal({ card, triggerButton }: EditCardModalProps) {
             <Button
               type="button"
               variant="destructive"
-              onClick={handleDelete}
-              disabled={isSubmitting || isDeleting}
+              onClick={handleDeleteClick}
+              disabled={isSubmitting}
               className="mr-auto"
             >
-              {isDeleting ? 'Deletando...' : 'Deletar Card'}
+              Deletar Card
             </Button>
             <Button
               type="button"
               variant="outline"
               onClick={() => setOpen(false)}
-              disabled={isSubmitting || isDeleting}
+              disabled={isSubmitting}
             >
               Cancelar
             </Button>
             <Button
               type="submit"
-              disabled={!isFormValid || isSubmitting || isDeleting}
+              disabled={!isFormValid || isSubmitting}
               className="min-w-[120px]"
             >
               {isSubmitting ? 'Salvando...' : 'Salvar Alterações'}
@@ -202,6 +178,15 @@ export function EditCardModal({ card, triggerButton }: EditCardModalProps) {
           </DialogFooter>
         </form>
       </DialogContent>
+      
+      {/* Delete confirmation modal */}
+      <DeleteCardModal
+        cardId={card.id}
+        deckId={card.deckId}
+        isOpen={showDeleteModal}
+        onOpenChange={setShowDeleteModal}
+        onSuccess={handleDeleteSuccess}
+      />
     </Dialog>
   );
 }
