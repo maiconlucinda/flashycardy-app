@@ -52,6 +52,8 @@ export default function RootLayout({
               footerActionLink: "text-primary hover:text-primary/80",
             },
           }}
+          publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+          dynamic
         >
           <ThemeProvider
             attribute="class"

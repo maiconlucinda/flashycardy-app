@@ -1,6 +1,6 @@
 import { db } from '@/db';
 import { decksTable } from '@/db/schema';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, sql } from 'drizzle-orm';
 
 /**
  * Get all decks for a specific user
@@ -10,6 +10,17 @@ export async function getUserDecks(userId: string) {
     .from(decksTable)
     .where(eq(decksTable.userId, userId))
     .orderBy(desc(decksTable.updatedAt));
+}
+
+/**
+ * Get the total count of decks for a specific user
+ */
+export async function getUserDeckCount(userId: string): Promise<number> {
+  const result = await db.select({ count: sql<number>`count(*)` })
+    .from(decksTable)
+    .where(eq(decksTable.userId, userId));
+    
+  return result[0]?.count || 0;
 }
 
 /**

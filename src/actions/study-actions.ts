@@ -21,14 +21,14 @@ const StartStudySessionSchema = z.object({
 type StartStudySessionInput = z.infer<typeof StartStudySessionSchema>;
 
 export async function startStudySession(input: StartStudySessionInput) {
-  const validatedInput = StartStudySessionSchema.parse(input);
-  
-  const { userId } = await auth();
-  if (!userId) {
-    throw new Error('Unauthorized');
-  }
-
   try {
+    const validatedInput = StartStudySessionSchema.parse(input);
+    
+    const { userId } = await auth();
+    if (!userId) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
     // Check if there's already an active session
     const existingSession = await getActiveStudySession(validatedInput.deckId, userId);
     if (existingSession) {
@@ -63,6 +63,15 @@ export async function startStudySession(input: StartStudySessionInput) {
     };
   } catch (error) {
     console.error('Error starting study session:', error);
+    
+    // Handle Zod validation errors
+    if (error instanceof z.ZodError) {
+      return { 
+        success: false, 
+        error: `Validation error: ${error.issues.map(e => e.message).join(', ')}` 
+      };
+    }
+    
     return { success: false, error: 'Failed to start study session' };
   }
 }
@@ -76,14 +85,14 @@ const CompleteStudySessionSchema = z.object({
 type CompleteStudySessionInput = z.infer<typeof CompleteStudySessionSchema>;
 
 export async function completeStudySession(input: CompleteStudySessionInput) {
-  const validatedInput = CompleteStudySessionSchema.parse(input);
-  
-  const { userId } = await auth();
-  if (!userId) {
-    throw new Error('Unauthorized');
-  }
-
   try {
+    const validatedInput = CompleteStudySessionSchema.parse(input);
+    
+    const { userId } = await auth();
+    if (!userId) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
     const session = await updateStudySession(
       validatedInput.sessionId,
       userId,
@@ -105,6 +114,15 @@ export async function completeStudySession(input: CompleteStudySessionInput) {
     };
   } catch (error) {
     console.error('Error completing study session:', error);
+    
+    // Handle Zod validation errors
+    if (error instanceof z.ZodError) {
+      return { 
+        success: false, 
+        error: `Validation error: ${error.issues.map(e => e.message).join(', ')}` 
+      };
+    }
+    
     return { success: false, error: 'Failed to complete study session' };
   }
 }
@@ -120,14 +138,14 @@ const ReviewCardSchema = z.object({
 type ReviewCardInput = z.infer<typeof ReviewCardSchema>;
 
 export async function reviewCard(input: ReviewCardInput) {
-  const validatedInput = ReviewCardSchema.parse(input);
-  
-  const { userId } = await auth();
-  if (!userId) {
-    throw new Error('Unauthorized');
-  }
-
   try {
+    const validatedInput = ReviewCardSchema.parse(input);
+    
+    const { userId } = await auth();
+    if (!userId) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
     // Update card progress
     await updateCardProgress({
       cardId: validatedInput.cardId,
@@ -156,6 +174,15 @@ export async function reviewCard(input: ReviewCardInput) {
     };
   } catch (error) {
     console.error('Error reviewing card:', error);
+    
+    // Handle Zod validation errors
+    if (error instanceof z.ZodError) {
+      return { 
+        success: false, 
+        error: `Validation error: ${error.issues.map(e => e.message).join(', ')}` 
+      };
+    }
+    
     return { success: false, error: 'Failed to review card' };
   }
 }
@@ -168,18 +195,27 @@ const GetStudyProgressSchema = z.object({
 type GetStudyProgressInput = z.infer<typeof GetStudyProgressSchema>;
 
 export async function getStudyProgress(input: GetStudyProgressInput) {
-  const validatedInput = GetStudyProgressSchema.parse(input);
-  
-  const { userId } = await auth();
-  if (!userId) {
-    throw new Error('Unauthorized');
-  }
-
   try {
+    const validatedInput = GetStudyProgressSchema.parse(input);
+    
+    const { userId } = await auth();
+    if (!userId) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
     const progress = await getDeckProgress(validatedInput.deckId, userId);
     return { success: true, progress };
   } catch (error) {
     console.error('Error getting study progress:', error);
+    
+    // Handle Zod validation errors
+    if (error instanceof z.ZodError) {
+      return { 
+        success: false, 
+        error: `Validation error: ${error.issues.map(e => e.message).join(', ')}` 
+      };
+    }
+    
     return { success: false, error: 'Failed to get study progress' };
   }
 }

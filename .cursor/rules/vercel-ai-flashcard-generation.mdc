@@ -1,0 +1,378 @@
+---
+alwaysApply: true
+---
+# Vercel AI Flashcard Generation Rules
+
+This project uses the Vercel AI library (`ai` npm package) to generate flashcards using OpenAI. All AI generation features MUST follow these patterns for consistency and proper integration with the existing authentication and billing systems.
+
+## Core AI Generation Pattern
+
+### 1. Server Action Structure for AI Generation
+AI flashcard generation MUST be implemented as Server Actions with proper authentication, billing checks, and Zod validation:
+
+```typescript
+'use server';
+
+import { auth } from '@clerk/nextjs/server';
+import { generateObject } from 'ai';
+import { openai } from 'ai/openai';
+import { z } from 'zod';
+import { createCards } from '@/db/queries/cards';
+import { getDeck } from '@/db/queries/decks';
+
+// Zod schema for AI generation input
+const GenerateFlashcardsSchema = z.object({
+  deckId: z.number().positive(),
+  topic: z.string().min(1, 'Topic is required').max(500),
+  count: z.number().min(1).max(20, 'Maximum 20 cards per generation'),
+  difficulty: z.enum(['easy', 'medium', 'hard']).optional().default('medium'),
+});
+
+type GenerateFlashcardsInput = z.infer<typeof GenerateFlashcardsSchema>;
+
+export async function generateFlashcardsWithAI(input: GenerateFlashcardsInput) {
+  // 1. Validate input
+  const validatedInput = GenerateFlashcardsSchema.parse(input);
+  
+  // 2. Authenticate user
+  const { userId, has } = await auth();
+  if (!userId) {
+    throw new Error('Unauthorized');
+  }
+
+  // 3. Check billing/feature access
+  const hasAIGeneration = has({ feature: 'ai_flashcard_generation' });
+  if (!hasAIGeneration) {
+    return {
+      success: false,
+      error: 'AI flashcard generation requires a Pro subscription.',
+      requiresUpgrade: true
+    };
+  }
+
+  // 4. Verify deck ownership
+  const deck = await getDeck(validatedInput.deckId, userId);
+  if (!deck) {
+    return {
+      success: false,
+      error: 'Deck not found or unauthorized'
+    };
+  }
+
+  try {
+    // 5. Generate flashcards using Vercel AI
+    const { object } = await generateObject({
+      model: openai('gpt-4'),
+      schema: z.object({
+        flashcards: z.array(z.object({
+          front: z.string(),
+          back: z.string(),
+        })),
+      }),
+      prompt: `Generate ${validatedInput.count} flashcards for the topic: "${validatedInput.topic}". 
+               Difficulty level: ${validatedInput.difficulty}.
+               Each flashcard should have a clear question on the front and a comprehensive answer on the back.
+               Make sure the content is educational and appropriate for studying.`,
+    });
+
+    // 6. Save generated cards to database
+    const newCards = await createCards(
+      object.flashcards.map(card => ({
+        ...card,
+        deckId: validatedInput.deckId,
+      }))
+    );
+
+    return {
+      success: true,
+      cards: newCards,
+      count: newCards.length
+    };
+  } catch (error) {
+    console.error('Error generating flashcards:', error);
+    return {
+      success: false,
+      error: 'Failed to generate flashcards'
+    };
+  }
+}
+```
+
+### 2. Required Zod Schema for Flashcard Generation
+Always use this exact schema structure for generating flashcards:
+
+```typescript
+import { z } from 'zod';
+
+// Schema for the AI-generated flashcards
+const FlashcardGenerationSchema = z.object({
+  flashcards: z.array(z.object({
+    front: z.string().min(1, 'Front side cannot be empty'),
+    back: z.string().min(1, 'Back side cannot be empty'),
+  })).min(1, 'Must generate at least one flashcard'),
+});
+```
+
+### 3. OpenAI Model Configuration
+Use these model configurations for different use cases:
+
+```typescript
+import { openai } from 'ai/openai';
+
+// For flashcard generation (recommended)
+const model = openai('gpt-4');
+
+// For faster/cheaper generation (alternative)
+const model = openai('gpt-4o-mini');
+
+// NEVER use older models like gpt-3.5-turbo for flashcard generation
+```
+
+### 4. Prompt Engineering Best Practices
+Structure prompts for consistent, high-quality flashcard generation:
+
+```typescript
+const prompt = `Generate ${count} flashcards for the topic: "${topic}".
+Difficulty level: ${difficulty}.
+
+Requirements:
+- Each flashcard should have a clear, concise question on the front
+- The back should contain a comprehensive but focused answer
+- Questions should test understanding, not just memorization
+- Avoid overly complex or ambiguous phrasing
+- Ensure content is educationally valuable
+- For ${difficulty} difficulty, adjust complexity appropriately
+
+Topic: ${topic}`;
+```
+
+### 5. Error Handling Patterns
+Implement comprehensive error handling for AI generation:
+
+```typescript
+try {
+  const { object } = await generateObject({
+    model: openai('gpt-4'),
+    schema: FlashcardGenerationSchema,
+    prompt: constructedPrompt,
+  });
+
+  // Validate generated content
+  if (!object.flashcards || object.flashcards.length === 0) {
+    throw new Error('No flashcards generated');
+  }
+
+  // Check for empty or invalid cards
+  const validCards = object.flashcards.filter(card => 
+    card.front.trim().length > 0 && card.back.trim().length > 0
+  );
+
+  if (validCards.length === 0) {
+    throw new Error('All generated flashcards were invalid');
+  }
+
+  return { success: true, cards: validCards };
+} catch (error) {
+  console.error('AI Generation Error:', error);
+  
+  if (error.message.includes('rate limit')) {
+    return { success: false, error: 'AI service is busy. Please try again in a moment.' };
+  }
+  
+  if (error.message.includes('content filter')) {
+    return { success: false, error: 'Content was filtered. Please try a different topic.' };
+  }
+  
+  return { success: false, error: 'Failed to generate flashcards. Please try again.' };
+}
+```
+
+## Client Component Integration
+
+### 1. React Component for AI Generation
+```typescript
+'use client';
+
+import { useState } from 'react';
+import { generateFlashcardsWithAI } from '@/actions/ai-actions';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Protect } from '@clerk/nextjs';
+
+export function AIFlashcardGenerator({ deckId }: { deckId: number }) {
+  const [topic, setTopic] = useState('');
+  const [count, setCount] = useState(5);
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  async function handleGenerate() {
+    if (!topic.trim()) return;
+    
+    setIsGenerating(true);
+    try {
+      const result = await generateFlashcardsWithAI({
+        deckId,
+        topic: topic.trim(),
+        count,
+      });
+
+      if (result.success) {
+        setTopic('');
+        // Handle success (show toast, refresh data, etc.)
+      } else if (result.requiresUpgrade) {
+        // Show upgrade prompt
+      } else {
+        // Show error message
+      }
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  return (
+    <Protect
+      feature="ai_flashcard_generation"
+      fallback={<AIGenerationUpgradePrompt />}
+    >
+      <div className="space-y-4">
+        <div>
+          <Label htmlFor="topic">Topic</Label>
+          <Input
+            id="topic"
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            placeholder="Enter a topic to generate flashcards about..."
+            maxLength={500}
+          />
+        </div>
+        
+        <div>
+          <Label htmlFor="count">Number of cards</Label>
+          <Input
+            id="count"
+            type="number"
+            min={1}
+            max={20}
+            value={count}
+            onChange={(e) => setCount(parseInt(e.target.value) || 1)}
+          />
+        </div>
+
+        <Button 
+          onClick={handleGenerate}
+          disabled={!topic.trim() || isGenerating}
+          className="w-full"
+        >
+          {isGenerating ? 'Generating...' : `Generate ${count} Flashcards`}
+        </Button>
+      </div>
+    </Protect>
+  );
+}
+```
+
+## Database Integration
+
+### 1. Cards Query Function for AI Generation
+Extend the existing cards queries to support bulk creation:
+
+```typescript
+// db/queries/cards.ts
+export async function createCards(cardsData: {
+  front: string;
+  back: string;
+  deckId: number;
+}[]) {
+  return await db.insert(cardsTable)
+    .values(cardsData.map(card => ({
+      ...card,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })))
+    .returning();
+}
+```
+
+## Environment Configuration
+
+### 1. Required Environment Variables
+Add these to your `.env` file:
+
+```env
+# OpenAI API Key for Vercel AI
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Optional: Custom AI API settings
+AI_MAX_RETRIES=3
+AI_TIMEOUT_MS=30000
+```
+
+### 2. AI Configuration File
+Create a configuration file for AI settings:
+
+```typescript
+// lib/ai-config.ts
+export const AI_CONFIG = {
+  maxCardsPerGeneration: 20,
+  defaultModel: 'gpt-4',
+  fallbackModel: 'gpt-4o-mini',
+  maxPromptLength: 2000,
+  retryAttempts: 3,
+  timeoutMs: 30000,
+} as const;
+```
+
+## Required Patterns
+
+### ✅ ALWAYS DO:
+1. **Use `generateObject` with Zod schemas** - Never use unstructured AI responses
+2. **Validate billing access** - Check `ai_flashcard_generation` feature before generation
+3. **Verify deck ownership** - Ensure users can only generate cards for their decks
+4. **Limit generation count** - Maximum 20 cards per request to prevent abuse
+5. **Handle AI errors gracefully** - Provide user-friendly error messages
+6. **Use Server Actions** - Never call AI generation from client components directly
+7. **Save generated cards to database** - Always persist AI-generated content
+
+### ❌ NEVER DO:
+1. **Direct OpenAI API calls** - Always use Vercel AI's `generateObject`
+2. **Skip billing validation** - AI features are premium and must be protected
+3. **Generate without limits** - Always enforce reasonable generation limits
+4. **Ignore error handling** - AI operations can fail in various ways
+5. **Use deprecated models** - Stick to GPT-4 or newer models
+6. **Generate cards without deck ownership check** - Security violation
+7. **Use unstructured prompts** - Always use the standardized prompt format
+
+## Testing AI Generation
+
+### 1. Test with Various Topics
+Test the AI generation with different topics to ensure quality:
+
+```typescript
+const testTopics = [
+  'JavaScript fundamentals',
+  'World War II history', 
+  'Basic chemistry concepts',
+  'Spanish vocabulary for beginners',
+  'Machine learning basics'
+];
+```
+
+### 2. Validate Generated Content
+Always validate that generated flashcards meet quality standards:
+
+```typescript
+function validateFlashcard(card: { front: string; back: string }) {
+  const minLength = 10;
+  const maxLength = 500;
+  
+  return (
+    card.front.length >= minLength &&
+    card.front.length <= maxLength &&
+    card.back.length >= minLength &&
+    card.back.length <= maxLength &&
+    card.front !== card.back
+  );
+}
+```
+
+Remember: AI generation is a premium feature that must be properly protected with billing checks and implemented as secure Server Actions using the Vercel AI library's structured generation capabilities.

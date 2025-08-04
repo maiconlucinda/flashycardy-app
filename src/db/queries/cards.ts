@@ -18,6 +18,28 @@ export async function getDeckCards(deckId: number, userId: string) {
 }
 
 /**
+ * Get only card data for a specific deck with ownership check
+ * Cards are ordered by updatedAt in descending order (most recent first)
+ */
+export async function getDeckCardsOnly(deckId: number, userId: string) {
+  return await db.select({
+    id: cardsTable.id,
+    front: cardsTable.front,
+    back: cardsTable.back,
+    deckId: cardsTable.deckId,
+    createdAt: cardsTable.createdAt,
+    updatedAt: cardsTable.updatedAt,
+  })
+    .from(cardsTable)
+    .innerJoin(decksTable, eq(cardsTable.deckId, decksTable.id))
+    .where(and(
+      eq(cardsTable.deckId, deckId),
+      eq(decksTable.userId, userId)
+    ))
+    .orderBy(desc(cardsTable.updatedAt));
+}
+
+/**
  * Get cards by deck ID (for testing purposes, no ownership check)
  * Cards are ordered by updatedAt in descending order (most recent first)
  */
@@ -199,3 +221,4 @@ export async function deleteCardsByDeckId(deckId: number) {
     
   return deletedCards;
 }
+

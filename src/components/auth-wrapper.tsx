@@ -15,10 +15,10 @@ export function AuthWrapper({ children }: AuthWrapperProps) {
 
   useEffect(() => {
     if (isLoaded && user) {
-      // Redirect authenticated users to dashboard
-      router.push('/dashboard');
+      // Use window.location for more reliable redirect
+      window.location.href = '/dashboard';
     }
-  }, [isLoaded, user, router]);
+  }, [isLoaded, user]);
 
   // Show loading state while checking authentication
   if (!isLoaded) {

@@ -27,16 +27,16 @@ type UpdateCardInput = z.infer<typeof UpdateCardSchema>;
 type DeleteCardInput = z.infer<typeof DeleteCardSchema>;
 
 export async function createCardAction(input: CreateCardInput) {
-  // Validar entrada
-  const validatedInput = CreateCardSchema.parse(input);
-  
-  // Autenticar usuário
-  const { userId } = await auth();
-  if (!userId) {
-    throw new Error('Não autorizado');
-  }
-
   try {
+    // Validar entrada
+    const validatedInput = CreateCardSchema.parse(input);
+    
+    // Autenticar usuário
+    const { userId } = await auth();
+    if (!userId) {
+      return { success: false, error: 'Não autorizado' };
+    }
+
     // Criar card usando a query function
     const newCard = await createCard(
       {
@@ -54,6 +54,15 @@ export async function createCardAction(input: CreateCardInput) {
     return { success: true, card: newCard };
   } catch (error) {
     console.error('Erro ao criar card:', error);
+    
+    // Handle Zod validation errors
+    if (error instanceof z.ZodError) {
+      return { 
+        success: false, 
+        error: `Erro de validação: ${error.issues.map(e => e.message).join(', ')}` 
+      };
+    }
+    
     if (error instanceof Error && error.message === 'Deck not found or unauthorized') {
       return { success: false, error: 'Deck não encontrado ou sem permissão' };
     }
@@ -62,16 +71,16 @@ export async function createCardAction(input: CreateCardInput) {
 }
 
 export async function updateCardAction(input: UpdateCardInput) {
-  // Validar entrada
-  const validatedInput = UpdateCardSchema.parse(input);
-  
-  // Autenticar usuário
-  const { userId } = await auth();
-  if (!userId) {
-    throw new Error('Não autorizado');
-  }
-
   try {
+    // Validar entrada
+    const validatedInput = UpdateCardSchema.parse(input);
+    
+    // Autenticar usuário
+    const { userId } = await auth();
+    if (!userId) {
+      return { success: false, error: 'Não autorizado' };
+    }
+
     // Atualizar card usando a query function
     const updatedCard = await updateCard(
       validatedInput.id,
@@ -89,6 +98,15 @@ export async function updateCardAction(input: UpdateCardInput) {
     return { success: true, card: updatedCard };
   } catch (error) {
     console.error('Erro ao atualizar card:', error);
+    
+    // Handle Zod validation errors
+    if (error instanceof z.ZodError) {
+      return { 
+        success: false, 
+        error: `Erro de validação: ${error.issues.map(e => e.message).join(', ')}` 
+      };
+    }
+    
     if (error instanceof Error && error.message === 'Card not found or unauthorized') {
       return { success: false, error: 'Card não encontrado ou sem permissão' };
     }
@@ -97,16 +115,16 @@ export async function updateCardAction(input: UpdateCardInput) {
 }
 
 export async function deleteCardAction(input: DeleteCardInput) {
-  // Validar entrada
-  const validatedInput = DeleteCardSchema.parse(input);
-  
-  // Autenticar usuário
-  const { userId } = await auth();
-  if (!userId) {
-    throw new Error('Não autorizado');
-  }
-
   try {
+    // Validar entrada
+    const validatedInput = DeleteCardSchema.parse(input);
+    
+    // Autenticar usuário
+    const { userId } = await auth();
+    if (!userId) {
+      return { success: false, error: 'Não autorizado' };
+    }
+
     // Deletar card usando a query function
     const deletedCard = await deleteCard(validatedInput.id, userId);
 
@@ -117,6 +135,15 @@ export async function deleteCardAction(input: DeleteCardInput) {
     return { success: true, card: deletedCard };
   } catch (error) {
     console.error('Erro ao deletar card:', error);
+    
+    // Handle Zod validation errors
+    if (error instanceof z.ZodError) {
+      return { 
+        success: false, 
+        error: `Erro de validação: ${error.issues.map(e => e.message).join(', ')}` 
+      };
+    }
+    
     if (error instanceof Error && error.message === 'Card not found or unauthorized') {
       return { success: false, error: 'Card não encontrado ou sem permissão' };
     }

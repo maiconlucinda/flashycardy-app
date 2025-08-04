@@ -6,7 +6,16 @@ const isProtectedRoute = createRouteMatcher([
   '/dashboard(.*)',
 ]);
 
+const isBillingRoute = createRouteMatcher([
+  '/billing(.*)',
+]);
+
 export default clerkMiddleware(async (auth, req) => {
+  // Allow billing routes to handle their own authentication
+  if (isBillingRoute(req)) {
+    return NextResponse.next();
+  }
+
   if (isProtectedRoute(req)) {
     const { userId } = await auth();
     

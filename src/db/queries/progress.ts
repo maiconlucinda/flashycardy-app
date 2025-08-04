@@ -121,12 +121,16 @@ export async function updateCardProgress(data: {
 }
 
 export async function getDeckProgress(deckId: number, userId: string) {
-  // Get all cards for the deck
+  // Get all cards for the deck with ownership check
   const cards = await db.select({
     cardId: cardsTable.id,
   })
     .from(cardsTable)
-    .where(eq(cardsTable.deckId, deckId));
+    .innerJoin(decksTable, eq(cardsTable.deckId, decksTable.id))
+    .where(and(
+      eq(cardsTable.deckId, deckId),
+      eq(decksTable.userId, userId)
+    ));
 
   if (cards.length === 0) {
     return {
