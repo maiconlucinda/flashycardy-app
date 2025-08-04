@@ -25,8 +25,15 @@ export async function getUserDeckCount(userId: string): Promise<number> {
 
 /**
  * Get all decks (for admin/testing purposes)
+ * ⚠️ WARNING: This function returns ALL decks without user filtering
+ * ⚠️ SECURITY: Never use this in production code or user-facing features
+ * ⚠️ USAGE: Only for testing, debugging, or admin functions
  */
 export async function getAllDecks() {
+  // Only allow in development or test environments
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('getAllDecks() is not allowed in production environment');
+  }
   return await db.select().from(decksTable);
 }
 
@@ -95,8 +102,16 @@ export async function deleteDeck(deckId: number, userId: string) {
 
 /**
  * Delete a deck by ID (for testing purposes, no ownership check)
+ * ⚠️ WARNING: This function deletes ANY deck without authorization checks
+ * ⚠️ SECURITY: Never use this in production code or user-facing features
+ * ⚠️ USAGE: Only for testing, cleanup scripts, or admin functions
  */
 export async function deleteDeckById(deckId: number) {
+  // Only allow in development or test environments
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('deleteDeckById() is not allowed in production environment');
+  }
+  
   const [deletedDeck] = await db.delete(decksTable)
     .where(eq(decksTable.id, deckId))
     .returning();

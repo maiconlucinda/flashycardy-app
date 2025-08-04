@@ -1,185 +1,366 @@
----
-globs: **/api/**/*.ts,**/actions/**/*.ts,**/app/**/route.ts
-description: API routes and server actions database patterns
----
+API routes and server actions database patterns
 
 # API Routes & Server Actions Database Patterns
 
-For Next.js API routes and server actions, follow these specific patterns when interacting with the database.
+This application follows strict modern patterns for data handling to ensure security, type safety, and maintainability.
 
-## API Route Pattern
+## Core Architecture Principles
 
-```typescript
-// app/api/decks/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/db';
-import { decksTable } from '@/db/schema';
-import { eq } from 'drizzle-orm';
-import { auth } from '@clerk/nextjs';
+### 1. Query Functions: All Database Access via Helper Functions
+**ALL** database operations MUST be done through helper functions in the `db/queries` directory, never with direct database access.
 
-export async function GET() {
-  try {
-    const { userId } = auth();
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+### 2. Data Mutations: Server Actions with Query Functions  
+**ALL** database mutations (INSERT, UPDATE, DELETE) MUST be done via Server Actions using query functions from `db/queries`, never via API routes or direct database access.
 
-    const decks = await db.select()
-      .from(decksTable)
-      .where(eq(decksTable.userId, userId));
+### 3. Data Validation: Zod Schemas Required
+**ALL** data passed to Server Actions MUST be validated using Zod schemas with proper TypeScript typing.
 
-    return NextResponse.json({ decks });
-  } catch (error) {
-    console.error('Error fetching decks:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch decks' }, 
-      { status: 500 }
-    );
-  }
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    const { userId } = auth();
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { title, description } = await request.json();
-
-    const [deck] = await db.insert(decksTable)
-      .values({ title, description, userId })
-      .returning();
-
-    return NextResponse.json({ deck }, { status: 201 });
-  } catch (error) {
-    console.error('Error creating deck:', error);
-    return NextResponse.json(
-      { error: 'Failed to create deck' }, 
-      { status: 500 }
-    );
-  }
-}
-```
-
-## Server Action Pattern
+## Server Action Pattern (REQUIRED)
 
 ```typescript
 // actions/deck-actions.ts
 'use server';
 
-import { db } from '@/db';
-import { decksTable, cardsTable } from '@/db/schema';
-import { eq, and } from 'drizzle-orm';
-import { auth } from '@clerk/nextjs';
+import { auth } from '@clerk/nextjs/server';
+import { createDeck as createDeckQuery } from '@/db/queries/decks';
+import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 
-export async function createDeck(formData: FormData) {
-  const { userId } = auth();
-  if (!userId) {
-    throw new Error('Unauthorized');
-  }
+// 1. Define Zod schema with TypeScript types
+const CreateDeckSchema = z.object({
+  title: z.string().min(1, 'Title is required').max(255),
+  description: z.string().max(1000).optional(),
+});
 
-  const title = formData.get('title') as string;
-  const description = formData.get('description') as string;
+type CreateDeckInput = z.infer<typeof CreateDeckSchema>;
 
+// 2. Server Action with typed input (NOT FormData)
+export async function createDeck(input: CreateDeckInput) {
   try {
-    const [deck] = await db.insert(decksTable)
-      .values({ title, description, userId })
-      .returning();
+    // 3. Validate input with Zod
+    const validatedInput = CreateDeckSchema.parse(input);
+    
+    // 4. Authenticate user
+    const { userId, has } = await auth();
+    if (!userId) {
+      return { success: false, error: 'Unauthorized' };
+    }
 
+    // 5. Check billing features (if needed)
+    const hasUnlimitedDecks = has({ feature: 'unlimited_decks' });
+    if (!hasUnlimitedDecks) {
+      // Handle feature restrictions
+    }
+
+    // 6. Use query function (NEVER direct database access)
+    const newDeck = await createDeckQuery({
+      ...validatedInput,
+      userId
+    });
+
+    // 7. Revalidate relevant paths
     revalidatePath('/dashboard');
-    return { success: true, deck };
+    
+    return { success: true, deck: newDeck };
   } catch (error) {
     console.error('Error creating deck:', error);
+    
+    // 8. Handle Zod validation errors
+    if (error instanceof z.ZodError) {
+      return { 
+        success: false, 
+        error: `Validation error: ${error.issues.map(e => e.message).join(', ')}` 
+      };
+    }
+    
     return { success: false, error: 'Failed to create deck' };
   }
 }
+```
 
-export async function deleteDeck(deckId: number) {
-  const { userId } = auth();
+## Query Function Pattern (REQUIRED)
+
+```typescript
+// db/queries/decks.ts
+import { db } from '@/db';
+import { decksTable } from '@/db/schema';
+import { eq, and, desc } from 'drizzle-orm';
+
+/**
+ * Create a new deck
+ */
+export async function createDeck(data: {
+  title: string;
+  description?: string;
+  userId: string;
+}) {
+  const [newDeck] = await db.insert(decksTable)
+    .values(data)
+    .returning();
+  
+  return newDeck;
+}
+
+/**
+ * Get all decks for a specific user with ownership check
+ */
+export async function getUserDecks(userId: string) {
+  return await db.select()
+    .from(decksTable)
+    .where(eq(decksTable.userId, userId))
+    .orderBy(desc(decksTable.updatedAt));
+}
+
+/**
+ * Update a deck with ownership check
+ */
+export async function updateDeck(
+  deckId: number,
+  userId: string,
+  updates: { title?: string; description?: string }
+) {
+  const [updatedDeck] = await db.update(decksTable)
+    .set({ ...updates, updatedAt: new Date() })
+    .where(and(
+      eq(decksTable.id, deckId),
+      eq(decksTable.userId, userId)
+    ))
+    .returning();
+    
+  return updatedDeck;
+}
+
+/**
+ * Delete a deck with ownership check
+ */
+export async function deleteDeck(deckId: number, userId: string) {
+  const [deletedDeck] = await db.delete(decksTable)
+    .where(and(
+      eq(decksTable.id, deckId),
+      eq(decksTable.userId, userId)
+    ))
+    .returning();
+    
+  return deletedDeck;
+}
+```
+
+## Server Component Pattern
+
+```typescript
+// Server Components fetch data using query functions
+import { auth } from '@clerk/nextjs/server';
+import { getUserDecks } from '@/db/queries/decks';
+import { redirect } from 'next/navigation';
+
+export default async function DecksPage() {
+  // 1. Authenticate user
+  const { userId } = await auth();
   if (!userId) {
-    throw new Error('Unauthorized');
+    redirect('/sign-in');
   }
 
-  try {
-    // Verify ownership before deletion
-    const deck = await db.select()
-      .from(decksTable)
-      .where(and(
-        eq(decksTable.id, deckId),
-        eq(decksTable.userId, userId)
-      ))
-      .limit(1);
+  // 2. Fetch data using query function (NEVER direct database access)
+  const decks = await getUserDecks(userId);
 
-    if (!deck.length) {
-      return { success: false, error: 'Deck not found or unauthorized' };
+  // 3. Render with Client Components for interactivity
+  return (
+    <div>
+      {decks.map(deck => (
+        <DeckCard key={deck.id} deck={deck} />
+      ))}
+    </div>
+  );
+}
+```
+
+## Client Component Integration
+
+```typescript
+// Client Components call Server Actions with typed data
+'use client';
+
+import { createDeck } from '@/actions/deck-actions';
+import { useState } from 'react';
+
+export function CreateDeckForm() {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    
+    // Pass typed object to Server Action (NOT FormData)
+    const result = await createDeck({
+      title,
+      description
+    });
+    
+    if (result.success) {
+      // Handle success
+      setTitle('');
+      setDescription('');
+    } else {
+      // Handle error
+      console.error(result.error);
     }
-
-    await db.delete(decksTable)
-      .where(eq(decksTable.id, deckId));
-
-    revalidatePath('/dashboard');
-    return { success: true };
-  } catch (error) {
-    console.error('Error deleting deck:', error);
-    return { success: false, error: 'Failed to delete deck' };
   }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input 
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Deck title"
+      />
+      <textarea 
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        placeholder="Description"
+      />
+      <button type="submit">Create Deck</button>
+    </form>
+  );
 }
 ```
 
 ## Required Patterns
 
 ### 1. Authentication Check
-- **ALWAYS** verify user authentication before database operations
-- Use `auth()` from Clerk or your auth provider
-- Return appropriate error responses for unauthorized access
+- **ALWAYS** use `auth()` from Clerk before database operations
+- **ALWAYS** verify user authentication and return appropriate errors
+- **ALWAYS** use destructured `{ userId, has }` for billing features
 
-### 2. Error Handling
-- Wrap all database operations in try-catch blocks
-- Log errors with descriptive messages
-- Return appropriate HTTP status codes in API routes
-- Return success/error objects in server actions
+### 2. Authorization & Ownership
+- **ALWAYS** verify user ownership of resources in query functions
+- **ALWAYS** use proper WHERE clauses with user ID checks
+- **NEVER** trust client-provided user IDs
 
-### 3. Data Validation
-- Validate input data before database operations
-- Use TypeScript types for request/response objects
-- Sanitize user input to prevent injection attacks
+### 3. Input Validation
+- **ALWAYS** validate with Zod schemas and derive TypeScript types
+- **NEVER** use `FormData` as Server Action parameter type
+- **NEVER** accept unvalidated input (`any` types forbidden)
 
-### 4. Response Patterns
-**API Routes:**
-```typescript
-// Success
-return NextResponse.json({ data }, { status: 200 });
+### 4. Error Handling
+- **ALWAYS** wrap database operations in try-catch blocks
+- **ALWAYS** handle Zod validation errors specifically
+- **ALWAYS** log errors with descriptive messages
+- **ALWAYS** return success/error objects in Server Actions
 
-// Error
-return NextResponse.json({ error: 'Message' }, { status: 400 });
+### 5. Cache Management
+- **ALWAYS** use `revalidatePath()` after database mutations
+- **ALWAYS** revalidate relevant paths that display the modified data
+
+### 6. Billing Integration
+- **ALWAYS** check feature access with `has({ feature: 'feature_name' })`
+- **ALWAYS** return appropriate error messages for billing restrictions
+
+## File Organization
+
+```
+src/
+├── actions/           # Server Actions grouped by feature
+│   ├── deck-actions.ts
+│   ├── card-actions.ts
+│   ├── ai-actions.ts
+│   └── study-actions.ts
+├── components/        # Client Components for UI
+├── app/              # Server Components for pages (NO API routes for mutations)
+├── db/
+│   ├── index.ts      # Database connection
+│   ├── schema.ts     # Database schema
+│   └── queries/      # Database query functions (REQUIRED)
+│       ├── decks.ts  # Deck-related queries
+│       ├── cards.ts  # Card-related queries
+│       └── progress.ts # Study progress queries
+└── lib/
+    └── schemas/      # Zod validation schemas (optional organization)
 ```
 
-**Server Actions:**
-```typescript
-// Success
-return { success: true, data };
+## Forbidden Patterns
 
-// Error
-return { success: false, error: 'Message' };
-```
+### ❌ NEVER DO:
 
-### 5. Cache Revalidation
-- Use `revalidatePath()` in server actions that modify data
-- Revalidate relevant paths after database mutations
+1. **Direct database access in Server Actions or components**
+   ```typescript
+   // ❌ WRONG: Direct database access
+   export async function createDeck(input: any) {
+     const deck = await db.insert(decksTable).values(input);
+   }
+   ```
 
-### 6. Authorization
-- Verify user ownership of resources before operations
-- Use proper WHERE clauses with user ID checks
-- Never trust client-provided user IDs
+2. **API routes for database mutations**
+   ```typescript
+   // ❌ WRONG: API route for mutations
+   // app/api/decks/route.ts
+   export async function POST(request: Request) {
+     await db.insert(decksTable).values(data);
+   }
+   ```
+
+3. **FormData as Server Action parameter type**
+   ```typescript
+   // ❌ WRONG: Using FormData
+   export async function createDeck(formData: FormData) {
+     const title = formData.get('title') as string;
+   }
+   ```
+
+4. **Unvalidated input**
+   ```typescript
+   // ❌ WRONG: No validation
+   export async function createDeck(input: any) {
+     await createDeckQuery(input);
+   }
+   ```
+
+5. **Skipping authentication**
+   ```typescript
+   // ❌ WRONG: No auth check
+   export async function createDeck(input: CreateDeckInput) {
+     // Missing auth() call
+     await createDeckQuery(input);
+   }
+   ```
+
+6. **Fetch data in Client Components**
+   ```typescript
+   // ❌ WRONG: Client Component fetching data
+   'use client';
+   export default function DecksPage() {
+     useEffect(() => {
+       fetch('/api/decks').then(res => res.json());
+     }, []);
+   }
+   ```
 
 ## Database Import Pattern
+
 ```typescript
-// Always import from the centralized locations
+// ALWAYS import from centralized locations
 import { db } from '@/db';
 import { decksTable, cardsTable } from '@/db/schema';
 import { eq, and, or, desc, asc } from 'drizzle-orm';
 ```
 
-Follow these patterns consistently across all API routes and server actions to maintain security, reliability, and code consistency.
+## Response Patterns
+
+**Server Actions MUST return:**
+```typescript
+// Success
+return { success: true, data: result };
+
+// Error
+return { success: false, error: 'Descriptive message' };
+
+// Billing restriction
+return { success: false, error: 'Feature requires upgrade', requiresUpgrade: true };
+```
+
+**Query Functions MUST:**
+- Include ownership checks with user ID filtering
+- Use proper TypeScript types for parameters and return values
+- Throw descriptive errors for unauthorized access
+- Return meaningful data using `.returning()` for mutations
+
+Follow these patterns consistently across all database operations to maintain security, type safety, and code maintainability. This architecture ensures proper separation of concerns, comprehensive security, and excellent developer experience.

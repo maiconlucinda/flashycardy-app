@@ -41,9 +41,17 @@ export async function getDeckCardsOnly(deckId: number, userId: string) {
 
 /**
  * Get cards by deck ID (for testing purposes, no ownership check)
+ * ⚠️ WARNING: This function returns cards without user authorization checks
+ * ⚠️ SECURITY: Never use this in production code or user-facing features
+ * ⚠️ USAGE: Only for testing, debugging, or admin functions
  * Cards are ordered by updatedAt in descending order (most recent first)
  */
 export async function getCardsByDeckId(deckId: number) {
+  // Only allow in development or test environments
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('getCardsByDeckId() is not allowed in production environment');
+  }
+  
   return await db.select()
     .from(cardsTable)
     .where(eq(cardsTable.deckId, deckId))
@@ -117,12 +125,20 @@ export async function createCards(cards: {
 
 /**
  * Create cards without ownership check (for testing purposes)
+ * ⚠️ WARNING: This function creates cards without deck ownership validation
+ * ⚠️ SECURITY: Never use this in production code or user-facing features
+ * ⚠️ USAGE: Only for testing, seeding data, or admin functions
  */
 export async function createCardsForTesting(cards: {
   front: string;
   back: string;
   deckId: number;
 }[]) {
+  // Only allow in development or test environments
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('createCardsForTesting() is not allowed in production environment');
+  }
+  
   if (cards.length === 0) return [];
   
   const newCards = await db.insert(cardsTable)
@@ -213,8 +229,16 @@ export async function deleteCardsByDeck(deckId: number, userId: string) {
 
 /**
  * Delete cards by deck ID (for testing purposes, no ownership check)
+ * ⚠️ WARNING: This function deletes cards without deck ownership validation
+ * ⚠️ SECURITY: Never use this in production code or user-facing features
+ * ⚠️ USAGE: Only for testing, cleanup scripts, or admin functions
  */
 export async function deleteCardsByDeckId(deckId: number) {
+  // Only allow in development or test environments
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('deleteCardsByDeckId() is not allowed in production environment');
+  }
+  
   const deletedCards = await db.delete(cardsTable)
     .where(eq(cardsTable.deckId, deckId))
     .returning();
