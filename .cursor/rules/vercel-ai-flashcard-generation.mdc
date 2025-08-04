@@ -131,19 +131,35 @@ const model = openai('gpt-4o-mini');
 ### 4. Prompt Engineering Best Practices
 Structure prompts for consistent, high-quality flashcard generation:
 
+#### General Requirements:
+- **Interface Language**: ALL UI elements (buttons, labels, options) MUST be in English
+- **Content Language**: Flashcard content can be in any language as specified by user
+- **Prompt Language**: AI prompts should be in English for better AI comprehension
+
+#### Language Learning Cards:
+For language learning flashcards, the prompt must specify:
+- Source language (appears on front of card)
+- Target language (appears on back of card)
+- Natural translations, not literal ones
+
 ```typescript
-const prompt = `Generate ${count} flashcards for the topic: "${topic}".
-Difficulty level: ${difficulty}.
+// Example prompt for language learning
+const prompt = `Generate ${count} flashcards for language learning.
+Topic/Theme: ${topic}
+Source language (front of cards): ${sourceLanguage}
+Target language (back of cards): ${targetLanguage}
+Difficulty level: ${difficulty}
 
-Requirements:
-- Each flashcard should have a clear, concise question on the front
-- The back should contain a comprehensive but focused answer
-- Questions should test understanding, not just memorization
-- Avoid overly complex or ambiguous phrasing
-- Ensure content is educationally valuable
-- For ${difficulty} difficulty, adjust complexity appropriately
+IMPORTANT REQUIREMENTS FOR LANGUAGE LEARNING:
+- Front of card: Write words, phrases, or sentences in ${sourceLanguage}
+- Back of card: Write the translation in ${targetLanguage}
+- Focus on practical, useful vocabulary and phrases
+- Ensure translations are accurate and natural
+- Avoid overly literal translations - use natural expressions
 
-Topic: ${topic}`;
+Example format:
+Front: "Como você está?" (in ${sourceLanguage})
+Back: "How are you?" (in ${targetLanguage})`;
 ```
 
 ### 5. Error Handling Patterns
@@ -332,6 +348,8 @@ export const AI_CONFIG = {
 5. **Handle AI errors gracefully** - Provide user-friendly error messages
 6. **Use Server Actions** - Never call AI generation from client components directly
 7. **Save generated cards to database** - Always persist AI-generated content
+8. **Keep UI in English** - All interface elements (buttons, labels, options) must be in English
+9. **Support any content language** - Flashcard content can be in any language per user choice
 
 ### ❌ NEVER DO:
 1. **Direct OpenAI API calls** - Always use Vercel AI's `generateObject`
@@ -341,6 +359,7 @@ export const AI_CONFIG = {
 5. **Use deprecated models** - Stick to GPT-4 or newer models
 6. **Generate cards without deck ownership check** - Security violation
 7. **Use unstructured prompts** - Always use the standardized prompt format
+8. **Use non-English UI text** - Interface must be in English; only flashcard content can be multilingual
 
 ## Testing AI Generation
 

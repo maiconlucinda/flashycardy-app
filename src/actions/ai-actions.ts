@@ -12,8 +12,11 @@ import { revalidatePath } from 'next/cache';
 const GenerateFlashcardsSchema = z.object({
   deckId: z.number().positive('Invalid deck ID'),
   topic: z.string().min(1, 'Topic is required').max(500, 'Topic too long'),
-  count: z.number().min(1).max(20, 'Maximum 20 cards per generation').default(20),
+  count: z.number().min(1).max(20, 'Maximum 20 cards per generation').default(10),
   difficulty: z.enum(['easy', 'medium', 'hard']).optional().default('medium'),
+  cardType: z.enum(['general', 'language', 'vocabulary', 'definitions']).optional().default('general'),
+  sourceLanguage: z.string().optional().default('português'),
+  targetLanguage: z.string().optional().default('inglês'),
 });
 
 // Schema for the AI-generated flashcards
@@ -58,8 +61,17 @@ export async function generateFlashcardsWithAI(input: GenerateFlashcardsInput) {
     };
   }
 
+  // 5. Validate deck has description for better AI generation
+  if (!deck.description || deck.description.trim().length === 0) {
+    return {
+      success: false,
+      error: 'Deck description is required for AI generation. The description helps AI understand context and create more relevant flashcards.',
+      requiresDescription: true
+    };
+  }
+
   try {
-    // 5. Check if OpenAI API key is configured
+    // 6. Check if OpenAI API key is configured
     if (!process.env.OPENAI_API_KEY) {
       return {
         success: false,
@@ -68,15 +80,80 @@ export async function generateFlashcardsWithAI(input: GenerateFlashcardsInput) {
       };
     }
 
-    // 6. Construct the prompt using deck title and description
+    // 7. Construct the prompt based on card type
     const topic = validatedInput.topic || deck.title;
     const additionalContext = deck.description ? `Additional context: ${deck.description}` : '';
     
-    const prompt = `Generate ${validatedInput.count} flashcards for the topic: "${topic}".
+    let prompt = '';
+    
+    switch (validatedInput.cardType) {
+      case 'language':
+        prompt = `Generate ${validatedInput.count} flashcards for language learning.
 ${additionalContext}
-Difficulty level: ${validatedInput.difficulty}.
+Topic/Theme: ${topic}
+Source language (front of cards): ${validatedInput.sourceLanguage}
+Target language (back of cards): ${validatedInput.targetLanguage}
+Difficulty level: ${validatedInput.difficulty}
 
-Requirements:
+IMPORTANT REQUIREMENTS FOR LANGUAGE LEARNING:
+- Front of card: Write words, phrases, or sentences in ${validatedInput.sourceLanguage}
+- Back of card: Write the translation in ${validatedInput.targetLanguage}
+- Focus on practical, useful vocabulary and phrases
+- Include common words and expressions that learners would encounter
+- For ${validatedInput.difficulty} difficulty:
+  * easy: Basic words and simple phrases
+  * medium: Common phrases and intermediate vocabulary
+  * hard: Complex sentences and advanced vocabulary
+- Ensure translations are accurate and natural
+- Avoid overly literal translations - use natural expressions
+
+Example format:
+Front: "Como você está?" (in ${validatedInput.sourceLanguage})
+Back: "How are you?" (in ${validatedInput.targetLanguage})`;
+        break;
+        
+      case 'vocabulary':
+        prompt = `Generate ${validatedInput.count} vocabulary flashcards for the topic: "${topic}".
+${additionalContext}
+Difficulty level: ${validatedInput.difficulty}
+
+REQUIREMENTS FOR VOCABULARY CARDS:
+- Front of card: A word or term related to the topic
+- Back of card: Clear definition, explanation, and usage example
+- Focus on key terminology and important concepts
+- Include words that are essential for understanding the topic
+- For ${validatedInput.difficulty} difficulty, adjust vocabulary complexity
+- Provide context and practical usage examples
+
+Example format:
+Front: "Algorithm"
+Back: "A step-by-step procedure for solving a problem or completing a task. Example: 'The sorting algorithm arranges data in ascending order.'"`;
+        break;
+        
+      case 'definitions':
+        prompt = `Generate ${validatedInput.count} definition flashcards for the topic: "${topic}".
+${additionalContext}
+Difficulty level: ${validatedInput.difficulty}
+
+REQUIREMENTS FOR DEFINITION CARDS:
+- Front of card: A concept, term, or principle
+- Back of card: Comprehensive definition with explanation
+- Focus on key concepts and important principles
+- Explain the significance and applications
+- For ${validatedInput.difficulty} difficulty, adjust concept complexity
+- Make definitions clear and educational
+
+Example format:
+Front: "Photosynthesis"
+Back: "The process by which plants use sunlight, carbon dioxide, and water to produce glucose and oxygen. This process is essential for plant growth and provides oxygen for most life on Earth."`;
+        break;
+        
+      default: // 'general'
+        prompt = `Generate ${validatedInput.count} flashcards for the topic: "${topic}".
+${additionalContext}
+Difficulty level: ${validatedInput.difficulty}
+
+GENERAL REQUIREMENTS:
 - Each flashcard should have a clear, concise question on the front
 - The back should contain a comprehensive but focused answer
 - Questions should test understanding, not just memorization
@@ -85,9 +162,17 @@ Requirements:
 - For ${validatedInput.difficulty} difficulty, adjust complexity appropriately
 - Make sure the content is appropriate for studying
 
-Topic: ${topic}`;
+Example format:
+Front: "What is the main function of the mitochondria?"
+Back: "The mitochondria is the powerhouse of the cell, responsible for producing ATP (energy) through cellular respiration."`;
+    }
+    
+    prompt += `
 
-    // 7. Generate flashcards using Vercel AI
+Topic: ${topic}
+Generate exactly ${validatedInput.count} flashcards.`;
+
+    // 8. Generate flashcards using Vercel AI
     // Note: Using gpt-4o-mini as it supports structured output with JSON schema
     // Alternative models: 'gpt-4o', 'gpt-4-turbo' (but not base 'gpt-4')
     const { object } = await generateObject({
@@ -97,7 +182,7 @@ Topic: ${topic}`;
       temperature: 0.7, // Add some creativity while maintaining consistency
     });
 
-    // 8. Validate generated content
+    // 9. Validate generated content
     if (!object.flashcards || object.flashcards.length === 0) {
       return {
         success: false,
@@ -105,7 +190,7 @@ Topic: ${topic}`;
       };
     }
 
-    // 9. Filter out any invalid cards
+    // 10. Filter out any invalid cards
     const validCards = object.flashcards.filter(card => 
       card.front.trim().length > 0 && 
       card.back.trim().length > 0 &&
@@ -119,7 +204,7 @@ Topic: ${topic}`;
       };
     }
 
-    // 10. Save generated cards to database
+    // 11. Save generated cards to database
     const newCards = await createCards(
       validCards.map(card => ({
         front: card.front.trim(),
@@ -129,7 +214,7 @@ Topic: ${topic}`;
       userId
     );
 
-    // 11. Revalidate the deck page
+    // 12. Revalidate the deck page
     revalidatePath(`/decks/${validatedInput.deckId}`);
 
     return {
